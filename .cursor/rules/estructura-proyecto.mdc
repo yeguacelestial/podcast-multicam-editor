@@ -1,0 +1,47 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Estructura del Proyecto Podcast Multicam Editor
+
+La estructura recomendada del proyecto es la siguiente:
+
+```
+podcast-multicam-editor/
+├── [environment.yml](mdc:environment.yml)
+├── [main.py](mdc:main.py)
+├── src/
+│   ├── __init__.py
+│   ├── cli/
+│   │   ├── __init__.py
+│   │   └── commands.py
+│   ├── audio/
+│   │   ├── __init__.py
+│   │   ├── extractor.py
+│   │   ├── synchronizer.py
+│   │   └── analyzer.py
+│   ├── video/
+│   │   ├── __init__.py
+│   │   ├── processor.py
+│   │   └── composer.py
+│   ├── detection/
+│   │   ├── __init__.py
+│   │   ├── vad.py
+│   │   └── speaker.py
+│   └── utils/
+│       ├── __init__.py
+│       ├── validation.py
+│       └── logging.py
+├── tests/
+├── configs/
+├── docs/
+└── [README.md](mdc:README.md)
+```
+
+- El archivo principal de entrada es [main.py](mdc:main.py).
+- Todas las funcionalidades principales están en la carpeta `src/` y sus submódulos.
+- Los tests deben ir en la carpeta `tests/`.
+- Las configuraciones y archivos de ejemplo van en `configs/`.
+- La documentación adicional debe ir en `docs/`.
+- El entorno de dependencias está definido en [environment.yml](mdc:environment.yml).

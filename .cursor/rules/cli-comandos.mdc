@@ -1,0 +1,26 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Comandos CLI del Podcast Multicam Editor
+
+La interfaz principal del proyecto es una CLI implementada en [main.py](mdc:main.py) usando Click.
+
+## Comandos principales:
+
+- `validate`: Valida los archivos de entrada (videos y audio).
+- `extract-audio`: Extrae el audio de un video.
+- `analyze-channels`: Analiza canales estéreo de un archivo de audio.
+- `sync`: Sincroniza videos con audio maestro.
+- `detect-speaker`: Detecta el speaker activo en el audio.
+- `generate`: Genera el video final con cambios automáticos de cámara.
+- `process`: Pipeline completo de procesamiento multicámara.
+
+Todos los comandos y su lógica están centralizados en [main.py](mdc:main.py) y los módulos bajo `src/cli/`.
+
+Para ayuda y ejemplos de uso, ejecutar:
+
+```
+python main.py --help
+```
