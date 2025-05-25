@@ -1,0 +1,16 @@
+name: podcast-editor
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - ffmpeg
+  - numpy
+  - scipy
+  - opencv
+  - pip
+  - pip:
+      - librosa
+      - click
+      - InquirerPy
+      - tqdm
+      - rich 
