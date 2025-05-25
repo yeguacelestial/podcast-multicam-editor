@@ -1,5 +1,11 @@
 ---
-description:
-globs:
-alwaysApply: false
+description: 
+globs: 
+alwaysApply: true
 ---
+# Progreso y Feedback al Usuario
+
+- Mostrar barras de progreso detalladas para operaciones largas.
+- Informar al usuario sobre el estado actual y estimaciones de tiempo.
+- Proveer mensajes claros de éxito, advertencia y error.
+- El feedback debe ser visible tanto en la CLI como en logs.

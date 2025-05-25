@@ -1,5 +1,14 @@
 ---
-description:
-globs:
-alwaysApply: false
+description: 
+globs: 
+alwaysApply: true
 ---
+# Estilo de Código y Buenas Prácticas
+
+- Seguir PEP 8 para el estilo de código.
+- Usar type hints en todas las funciones.
+- Documentar funciones complejas con docstrings.
+- Mantener funciones pequeñas y enfocadas.
+- Separar lógica en módulos cuando sea necesario.
+- Cuando un archivo sea muy largo, dividirlo en archivos más pequeños.
+- Cuando una función sea muy larga, dividirla en funciones más pequeñas.

@@ -1,5 +1,15 @@
 ---
-description:
-globs:
-alwaysApply: false
+description: 
+globs: 
+alwaysApply: true
 ---
+# Gestión de Dependencias y Entorno
+
+- Usar siempre conda para instalar dependencias cuando sea posible.
+- Para paquetes no disponibles en conda, usar primero conda-forge y luego pip dentro del entorno conda.
+- Nunca instalar dependencias globalmente.
+- El entorno debe ser Python 3.11+ y llamarse `podcast-editor`.
+- Mantener actualizado [environment.yml](mdc:environment.yml).
+- Usar las últimas versiones estables de las librerías.
+
+El archivo de referencia es [environment.yml](mdc:environment.yml).
