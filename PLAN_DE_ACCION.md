@@ -11,20 +11,21 @@ Automatizar la edición de podcasts multicámara utilizando un CLI interactivo e
 - **Librosa** para análisis de audio y sincronización
 - **OpenCV** para procesamiento de video
 - **Click** para CLI base
-- **questionary** o **PyInquirer** para CLI interactivo y selección de archivos
+- **InquirerPy** para selección interactiva de archivos y parámetros
+- **Rich** para visualización mejorada (progreso, logs, etc.)
 - **NumPy/SciPy** para análisis de señales
 
 ### Flujo del Proceso Interactivo
-1. **Inicio del CLI**: Menú interactivo que guía al usuario paso a paso.
-2. **Selección de archivos**: Navegador de archivos profesional con iconos y colores, permitiendo navegar hacia cualquier directorio (adelante, atrás, raíz, home) y diferenciando visualmente carpetas y archivos. El usuario debe seleccionar:
+1. **Inicio del CLI**: Banner de bienvenida "CULTURAMA podcast editor" y menú interactivo.
+2. **Selección de archivos**: Navegador de archivos profesional con InquirerPy, permitiendo navegación completa y validación de archivos. El usuario debe seleccionar:
    - Video del Speaker 1
    - Video del Speaker 2
    - Audio mono del Speaker 1
    - Audio mono del Speaker 2
-3. **Parámetros de procesamiento**: Preguntar suavidad de cambio de cámara (opciones: instantáneo, suave, muy suave), duración de preview (5 min o completo), calidad de salida, etc.
-4. **Confirmación de configuración**: Mostrar resumen y pedir confirmación antes de procesar.
-5. **Procesamiento y feedback**: Mostrar barra de progreso y logs claros.
-6. **Entrega de resultados**: Guardar el video final y mostrar ubicación.
+3. **Parámetros de procesamiento**: Selección de suavidad del cambio de cámara (opciones: instantáneo, suave, muy suave), duración de preview, calidad de salida, y ubicación del archivo final.
+4. **Confirmación de configuración**: Resumen visual de todos los archivos y parámetros seleccionados con confirmación.
+5. **Procesamiento y feedback**: Barra de progreso con Rich y logs detallados durante el proceso.
+6. **Entrega de resultados**: Mensaje de éxito y ruta del video final generado.
 
 ---
 
@@ -32,23 +33,23 @@ Automatizar la edición de podcasts multicámara utilizando un CLI interactivo e
 **Objetivo:** Establecer el entorno de desarrollo y estructura básica del proyecto
 
 ### Tareas:
-- [ ] **1.1** Crear entorno conda `podcast-editor`
-- [ ] **1.2** Instalar dependencias principales (ffmpeg, librosa, opencv, click, questionary)
-- [ ] **1.3** Crear estructura de carpetas del proyecto
-- [ ] **1.4** Implementar CLI base con Click y questionary
-- [ ] **1.5** Crear utilities para validación de archivos de entrada
-- [ ] **1.6** Implementar logging y configuración
+- [x] **1.1** Crear entorno conda `podcast-editor`
+- [x] **1.2** Instalar dependencias principales (ffmpeg, librosa, opencv, click, InquirerPy, Rich)
+- [x] **1.3** Crear estructura de carpetas del proyecto
+- [x] **1.4** Implementar CLI base con Click e InquirerPy
+- [x] **1.5** Crear utilities para validación de archivos de entrada
+- [x] **1.6** Implementar logging y configuración
 
 ### Entregables:
 - ✅ Entorno conda funcional
-- ✅ CLI interactivo básico que permite seleccionar archivos y parámetros
+- ✅ CLI interactivo profesional con selección visual de archivos y parámetros
 - ✅ Estructura de proyecto organizada
+- ✅ Sistema de validación de archivos y logging
 
 ### Testing:
 ```bash
 python main.py
-# El CLI debe guiar al usuario para seleccionar archivos y parámetros
-# La selección de archivos debe mostrar iconos, colores y navegación profesional
+# El CLI muestra el banner CULTURAMA y guía interactivamente por todo el proceso
 ```
 
 ---
@@ -163,7 +164,7 @@ podcast-multicam-editor/
 │   ├── __init__.py
 │   ├── cli/
 │   │   ├── __init__.py
-│   │   └── interactive.py
+│   │   └── commands.py
 │   ├── audio/
 │   │   ├── __init__.py
 │   │   ├── extractor.py
@@ -193,7 +194,7 @@ El usuario solo ejecuta:
 ```bash
 python main.py
 ```
-Y el sistema lo guía paso a paso para seleccionar archivos, parámetros y procesar el video.
+Y el sistema muestra un banner "CULTURAMA podcast editor" y lo guía paso a paso con una interfaz visual para seleccionar archivos, parámetros y procesar el video.
 
 ## Consideraciones de Rendimiento
 
@@ -201,7 +202,7 @@ Y el sistema lo guía paso a paso para seleccionar archivos, parámetros y proce
 2. **Multithreading** para operaciones paralelas
 3. **Caching** de resultados intermedios
 4. **Optimización de memoria** para videos largos
-5. **Progress tracking** detallado para el usuario
+5. **Progress tracking** detallado para el usuario con Rich
 
 ## Métricas de Éxito
 

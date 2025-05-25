@@ -6,11 +6,11 @@ dependencies:
   - ffmpeg
   - numpy
   - scipy
-  - opencv
   - pip
   - pip:
       - librosa
       - click
       - InquirerPy
       - tqdm
-      - rich 
+      - rich
+      - moviepy 
