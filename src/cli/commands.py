@@ -6,6 +6,11 @@ from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
 from InquirerPy.base.control import Choice
 
+from src.audio.analyzer import validate_audio_file, analyze_audio_file
+from src.audio.extractor import extract_audio_from_video
+from src.audio.synchronizer import find_offset_between_audios, create_audio_fingerprint
+from src.detection.vad import detect_voice_activity, auto_threshold_vad
+
 console = Console()
 
 @click.command(name="process")
@@ -34,18 +39,162 @@ def process_command(test, duration):
         console.print("[yellow]Proceso cancelado por el usuario.[/]")
         return
     
-    # Simulación de procesamiento
+    # Iniciar procesamiento
     with Progress() as progress:
-        task = progress.add_task("[cyan]Procesando...", total=100)
+        main_task = progress.add_task("[cyan]Procesando...", total=100)
         
-        # Aquí se llamaría al procesamiento real
-        for i in range(101):
-            # Simular trabajo
-            progress.update(task, completed=i)
-            # Aquí iría el procesamiento real
+        # Fase 1: Validar archivos de audio
+        progress.update(main_task, advance=5, description="[cyan]Validando archivos de audio...")
+        
+        # Validar audio speaker 1
+        audio1_valid, audio1_info = validate_audio_file(files["audio1"])
+        if not audio1_valid:
+            console.print(f"[bold red]Error: El archivo de audio del Speaker 1 no es válido.[/]")
+            return
+        
+        # Validar audio speaker 2
+        audio2_valid, audio2_info = validate_audio_file(files["audio2"])
+        if not audio2_valid:
+            console.print(f"[bold red]Error: El archivo de audio del Speaker 2 no es válido.[/]")
+            return
+        
+        # Fase 2: Extraer audio de videos si es necesario
+        progress.update(main_task, advance=5, description="[cyan]Extrayendo audio de videos...")
+        
+        # Extraer audio de video speaker 1
+        video1_audio_task = progress.add_task("[green]Extrayendo audio de video 1...", total=100)
+        video1_audio = extract_audio_from_video(
+            files["video1"],
+            mono=True,
+            progress=progress,
+            task_id=video1_audio_task
+        )
+        
+        # Extraer audio de video speaker 2
+        video2_audio_task = progress.add_task("[green]Extrayendo audio de video 2...", total=100)
+        video2_audio = extract_audio_from_video(
+            files["video2"],
+            mono=True,
+            progress=progress,
+            task_id=video2_audio_task
+        )
+        
+        # Fase 3: Crear fingerprints de audio
+        progress.update(main_task, advance=10, description="[cyan]Creando fingerprints de audio...")
+        
+        # Fingerprint para audio speaker 1
+        fingerprint1_task = progress.add_task("[green]Creando fingerprint audio 1...", total=100)
+        try:
+            fingerprint1 = create_audio_fingerprint(
+                files["audio1"],
+                progress=progress
+            )
+            progress.update(fingerprint1_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error al crear fingerprint para audio 1: {str(e)}[/]")
+            return
+        
+        # Fingerprint para audio speaker 2
+        fingerprint2_task = progress.add_task("[green]Creando fingerprint audio 2...", total=100)
+        try:
+            fingerprint2 = create_audio_fingerprint(
+                files["audio2"],
+                progress=progress
+            )
+            progress.update(fingerprint2_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error al crear fingerprint para audio 2: {str(e)}[/]")
+            return
+        
+        # Fase 4: Encontrar offset entre audios y videos
+        progress.update(main_task, advance=15, description="[cyan]Calculando sincronización...")
+        
+        # Offset entre audio y video del speaker 1
+        offset1_task = progress.add_task("[green]Calculando offset video 1...", total=100)
+        try:
+            offset1_result = find_offset_between_audios(
+                files["audio1"],
+                video1_audio,
+                progress=progress
+            )
+            progress.update(offset1_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error al calcular offset para speaker 1: {str(e)}[/]")
+            return
+        
+        # Offset entre audio y video del speaker 2
+        offset2_task = progress.add_task("[green]Calculando offset video 2...", total=100)
+        try:
+            offset2_result = find_offset_between_audios(
+                files["audio2"],
+                video2_audio,
+                progress=progress
+            )
+            progress.update(offset2_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error al calcular offset para speaker 2: {str(e)}[/]")
+            return
+        
+        # Fase 5: Detección de actividad vocal (VAD)
+        progress.update(main_task, advance=15, description="[cyan]Detectando actividad vocal...")
+        
+        # VAD para speaker 1
+        vad1_task = progress.add_task("[green]Detectando voz speaker 1...", total=100)
+        try:
+            # Primero calibrar automáticamente
+            vad1_calibration = auto_threshold_vad(
+                files["audio1"],
+                progress=progress
+            )
+            
+            # Usar el umbral óptimo encontrado
+            vad1_result = detect_voice_activity(
+                files["audio1"],
+                threshold=vad1_calibration["best_threshold"],
+                progress=progress
+            )
+            progress.update(vad1_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error en VAD para speaker 1: {str(e)}[/]")
+            return
+        
+        # VAD para speaker 2
+        vad2_task = progress.add_task("[green]Detectando voz speaker 2...", total=100)
+        try:
+            # Primero calibrar automáticamente
+            vad2_calibration = auto_threshold_vad(
+                files["audio2"],
+                progress=progress
+            )
+            
+            # Usar el umbral óptimo encontrado
+            vad2_result = detect_voice_activity(
+                files["audio2"],
+                threshold=vad2_calibration["best_threshold"],
+                progress=progress
+            )
+            progress.update(vad2_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error en VAD para speaker 2: {str(e)}[/]")
+            return
+        
+        # Completar barra principal
+        progress.update(main_task, completed=100, description="[green]Procesamiento completado")
     
-    console.print("[bold green]¡Procesamiento completado con éxito![/]")
-    console.print(f"Video final guardado en: [cyan]{params['output_file']}[/]")
+    # Mostrar resultados
+    console.print("\n[bold green]¡Procesamiento completado con éxito![/]")
+    
+    # Mostrar información de sincronización
+    console.print("\n[bold cyan]Resultados de sincronización:[/]")
+    console.print(f"- Offset video 1: [green]{offset1_result['offset_seconds']:.3f} segundos[/] (confianza: {offset1_result['confidence_score']:.4f})")
+    console.print(f"- Offset video 2: [green]{offset2_result['offset_seconds']:.3f} segundos[/] (confianza: {offset2_result['confidence_score']:.4f})")
+    
+    # Mostrar información de VAD
+    console.print("\n[bold cyan]Resultados de detección de voz:[/]")
+    console.print(f"- Speaker 1: [green]{vad1_result['num_segments']} segmentos[/] ({vad1_result['speech_percentage']:.1f}% de voz)")
+    console.print(f"- Speaker 2: [green]{vad2_result['num_segments']} segmentos[/] ({vad2_result['speech_percentage']:.1f}% de voz)")
+    
+    console.print(f"\nVideo final guardado en: [cyan]{params['output_file']}[/]")
 
 def select_input_files():
     """Permite al usuario seleccionar los archivos de entrada usando InquirerPy."""
@@ -102,7 +251,7 @@ def select_processing_parameters(test_mode, test_duration):
             min_allowed=30,
             max_allowed=1800,
             default=300,
-            validate=lambda val: val >= 30 and val <= 1800,
+            validate=lambda val: try_convert_to_int(val) and 30 <= int(val) <= 1800,
         ).execute()
     else:
         params["test_duration"] = test_duration
@@ -145,6 +294,14 @@ def select_processing_parameters(test_mode, test_duration):
     params["output_file"] = os.path.join(output_dir, output_filename)
     
     return params
+
+def try_convert_to_int(val):
+    """Intenta convertir un valor a entero, retorna False si no es posible."""
+    try:
+        int(val)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 def show_summary(files, params):
     """Muestra un resumen de los archivos y parámetros seleccionados."""

@@ -9,6 +9,7 @@ dependencies:
   - pip
   - pip:
       - librosa
+      - soundfile
       - click
       - InquirerPy
       - tqdm

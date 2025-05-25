@@ -7,9 +7,9 @@ Automatizar la edición de podcasts multicámara utilizando un CLI interactivo e
 
 ### Tecnologías Principales
 - **Python 3.11+** con conda environment
-- **FFmpeg** para procesamiento de video/audio
+- **FFmpeg** para procesamiento de audio/video de bajo nivel
+- **MoviePy** para edición y composición de video
 - **Librosa** para análisis de audio y sincronización
-- **OpenCV** para procesamiento de video
 - **Click** para CLI base
 - **InquirerPy** para selección interactiva de archivos y parámetros
 - **Rich** para visualización mejorada (progreso, logs, etc.)
@@ -34,7 +34,7 @@ Automatizar la edición de podcasts multicámara utilizando un CLI interactivo e
 
 ### Tareas:
 - [x] **1.1** Crear entorno conda `podcast-editor`
-- [x] **1.2** Instalar dependencias principales (ffmpeg, librosa, opencv, click, InquirerPy, Rich)
+- [x] **1.2** Instalar dependencias principales (ffmpeg, librosa, moviepy, click, InquirerPy, Rich)
 - [x] **1.3** Crear estructura de carpetas del proyecto
 - [x] **1.4** Implementar CLI base con Click e InquirerPy
 - [x] **1.5** Crear utilities para validación de archivos de entrada
@@ -59,8 +59,8 @@ python main.py
 
 ### Tareas:
 - [ ] **2.1** Validar y cargar los archivos de audio mono de cada speaker
-- [ ] **2.2** Extraer audio de videos de iPhone (si es necesario)
-- [ ] **2.3** Crear fingerprints de audio para sincronización
+- [ ] **2.2** Extraer audio de videos de iPhone (si es necesario) usando FFmpeg
+- [ ] **2.3** Crear fingerprints de audio para sincronización con Librosa
 - [ ] **2.4** Implementar detección de actividad vocal (VAD) en cada pista mono
 - [ ] **2.5** Análisis de características espectrales para identificación de speakers (si es necesario)
 
@@ -101,7 +101,7 @@ python main.py
 - [ ] **4.1** Implementar VAD (Voice Activity Detection) avanzado en cada pista mono
 - [ ] **4.2** Analizar energía por pista para identificar speaker activo
 - [ ] **4.3** Implementar filtros para evitar cambios muy rápidos
-- [ ] **4.4** Crear sistema de transiciones suaves (ajustable por usuario)
+- [ ] **4.4** Crear sistema de transiciones suaves (ajustable por usuario) con MoviePy
 - [ ] **4.5** Manejar casos de overlap de speakers
 
 ### Entregables:
@@ -118,11 +118,11 @@ python main.py
 **Objetivo:** Componer el video final con cambios automáticos de cámara
 
 ### Tareas:
-- [ ] **5.1** Implementar sistema de cortes de video basado en timeline
+- [ ] **5.1** Implementar sistema de cortes de video basado en timeline con MoviePy
 - [ ] **5.2** Sincronizar audio maestro con video resultante
 - [ ] **5.3** Manejar casos de video faltante (mostrar cámara disponible)
-- [ ] **5.4** Optimizar renderizado para videos largos (1-2 horas)
-- [ ] **5.5** Agregar metadatos y configuraciones de calidad
+- [ ] **5.4** Optimizar renderizado para videos largos (1-2 horas) con procesamiento por chunks
+- [ ] **5.5** Agregar metadatos y configuraciones de calidad usando FFmpeg
 
 ### Entregables:
 - ✅ Video final sincronizado
