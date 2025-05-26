@@ -3,13 +3,8 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10
-  - ffmpeg
-  - moviepy
-  - numpy
-  - pytorch
-  - torchaudio
-  - torchvision
+  - python=3.11
+  - numpy>=1.24.0
   - pip
   - pip:
-      - git+https://github.com/openai/whisper.git
+    - argparse  # Incluido en Python 3.11 pero listado para claridad
