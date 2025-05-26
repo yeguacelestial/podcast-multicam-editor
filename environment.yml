@@ -10,6 +10,7 @@ dependencies:
   - pip:
       - librosa
       - soundfile
+      - openai-whisper
       - click
       - InquirerPy
       - tqdm

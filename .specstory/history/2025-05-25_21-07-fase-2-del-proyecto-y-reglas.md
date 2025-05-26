@@ -1781,3 +1781,889 @@ _**Assistant**_
 
 ---
 
+Con lo implementado hasta ahora, puedes hacer lo siguiente:
+
+1. **Extraer audio de videos**: El sistema puede extraer pistas de audio de videos (como los grabados con iPhone) y convertirlos a formato WAV mono.
+
+2. **Analizar archivos de audio**: Puedes validar archivos de audio, detectar si son mono o estéreo, y analizar sus características básicas (duración, energía, etc.).
+
+3. **Sincronizar pistas de audio**: El sistema puede encontrar automáticamente el offset (desfase) entre dos pistas de audio relacionadas, por ejemplo, entre el audio grabado por el iPhone y el audio de alta calidad de un micrófono externo.
+
+4. **Detectar voz (VAD)**: Se implementó un sistema que detecta automáticamente los momentos en que cada speaker está hablando, identificando segmentos de voz y silencio.
+
+5. **Interfaz de usuario completa**: Puedes ejecutar la aplicación con `python main.py` para acceder a una interfaz interactiva que te guía por todo el proceso:
+   - Selección de archivos (videos y audios)
+   - Configuración de parámetros (calidad, transiciones, etc.)
+   - Procesamiento con barras de progreso
+   - Resumen de resultados
+
+Lo que hace el programa en este momento es todo el análisis y preparación previos, calculando:
+- El offset exacto entre cada video y su audio de alta calidad
+- Los segmentos donde cada speaker está hablando
+
+Esto corresponde a las Fases 1 y 2 del plan de acción. Todavía no está implementada la generación del video final con cambios automáticos de cámara (Fases 3-6), pero ya tienes toda la información necesaria para ello.
+
+---
+
+_**User**_
+
+de lo que estamos haciendo en el @PLAN_DE_ACCION.md , como podria ayudar esta libreria?
+@https://github.com/openai/whisper 
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Whisper de OpenAI podría ser una excelente adición a nuestro proyecto de Podcast Multicam Editor, principalmente en estas áreas:
+
+1. **Detección de Speaker Activo (Fase 4)**: Actualmente estamos implementando VAD (Voice Activity Detection) básico, pero Whisper podría proporcionar una identificación mucho más precisa de quién está hablando en cada momento. Esto mejoraría significativamente la calidad de los cambios automáticos de cámara.
+
+2. **Transcripción Automática**: Podríamos agregar una nueva funcionalidad no contemplada inicialmente: generar subtítulos automáticos para el podcast final. Esto aumentaría la accesibilidad y permitiría también crear contenido derivado (como extractos con subtítulos para redes sociales).
+
+3. **Mejora del VAD (Fase 2)**: En lugar de implementar nuestro propio sistema de detección de actividad vocal desde cero, podríamos utilizar Whisper para obtener segmentaciones más precisas de los momentos de habla.
+
+4. **Análisis de Contenido**: Podríamos añadir funcionalidades como identificar temas importantes, momentos destacados o cambios de tema basados en la transcripción, para sugerir puntos de edición adicionales.
+
+Para integrar Whisper necesitaríamos:
+
+1. Añadir la dependencia a nuestro `environment.yml`:
+   ```yaml
+   - pip:
+       - openai-whisper
+   ```
+
+2. Crear un nuevo módulo en `src/transcription/` para manejar la transcripción y el análisis de texto.
+
+3. Modificar el flujo de trabajo en `src/cli/commands.py` para incluir un paso de transcripción.
+
+La implementación sería relativamente sencilla:
+
+```python
+import whisper
+
+def transcribe_audio(audio_path, language="es"):
+    model = whisper.load_model("medium")  # Elegir tamaño según necesidades
+    result = model.transcribe(audio_path, language=language)
+    return result
+```
+
+Esta funcionalidad podría ser especialmente útil para podcasts largos donde el cambio automático de cámara basado en detección de voz es esencial.
+
+---
+
+_**User**_
+
+ok, me gustaría que actualizaras el @PLAN_DE_ACCION.md , el @environment.yml y simplificar la fase 2 del proyecto @podcast-multicam-editor utilizando whisper, considerando los cursor rules @rules 
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Read file: PLAN_DE_ACCION.md
+
+---
+
+Read file: environment.yml
+
+---
+
+Read file: .cursor/rules/dependencias-entorno.mdc
+
+---
+
+Ahora actualizaré los archivos solicitados para integrar Whisper y simplificar la Fase 2 del proyecto:
+
+---
+
+```diff
+        - librosa
+        - soundfile
++       - openai-whisper
+        - click
+        - InquirerPy
+```
+
+---
+
+```diff
+  - **MoviePy** para edición y composición de video
+  - **Librosa** para análisis de audio y sincronización
++ - **Whisper** para transcripción, detección de actividad vocal e identificación de speakers
+  - **Click** para CLI base
+  - **InquirerPy** para selección interactiva de archivos y parámetros
+```
+
+```diff
+  ### Tareas:
+  - [x] **1.1** Crear entorno conda `podcast-editor`
+- - [x] **1.2** Instalar dependencias principales (ffmpeg, librosa, moviepy, click, InquirerPy, Rich)
++ - [x] **1.2** Instalar dependencias principales (ffmpeg, librosa, moviepy, click, InquirerPy, Rich, Whisper)
+  - [x] **1.3** Crear estructura de carpetas del proyecto
+  - [x] **1.4** Implementar CLI base con Click e InquirerPy
+```
+
+```diff
+  ---
+  
+- ## FASE 2: Análisis y Procesamiento de Audio
+- **Objetivo:** Procesar y analizar los audios mono de cada speaker
++ ## FASE 2: Análisis y Procesamiento de Audio con Whisper
++ **Objetivo:** Procesar y analizar los audios mono de cada speaker utilizando Whisper para simplificar el proceso
+  
+  ### Tareas:
+  - [ ] **2.1** Validar y cargar los archivos de audio mono de cada speaker
+  - [ ] **2.2** Extraer audio de videos de iPhone (si es necesario) usando FFmpeg
+- - [ ] **2.3** Crear fingerprints de audio para sincronización con Librosa
+- - [ ] **2.4** Implementar detección de actividad vocal (VAD) en cada pista mono
+- - [ ] **2.5** Análisis de características espectrales para identificación de speakers (si es necesario)
++ - [ ] **2.3** Implementar transcripción y detección de actividad vocal con Whisper
++ - [ ] **2.4** Utilizar Whisper para identificación automática de speakers
++ - [ ] **2.5** Crear sistema de análisis de segmentación temporal para cada speaker
+  
+  ### Entregables:
+  - ✅ Función de validación y carga de audios mono
+  - ✅ Extractor de audio de videos (opcional)
+- - ✅ Sistema de fingerprinting de audio
++ - ✅ Sistema de transcripción y detección de speaker con Whisper
++ - ✅ Segmentación temporal precisa por speaker
+  
+  ### Testing:
+- - Seleccionar archivos desde el CLI y verificar carga correcta de los audios mono
++ - Seleccionar archivos desde el CLI y verificar la identificación correcta de speakers y segmentos de voz
+  
+  ---
+```
+
+```diff
+  
+  ### Tareas:
+- - [ ] **4.1** Implementar VAD (Voice Activity Detection) avanzado en cada pista mono
+- - [ ] **4.2** Analizar energía por pista para identificar speaker activo
++ - [ ] **4.1** Utilizar resultados de Whisper para identificación precisa de speaker activo
++ - [ ] **4.2** Analizar energía por pista para refinar la detección de Whisper
+  - [ ] **4.3** Implementar filtros para evitar cambios muy rápidos
+  - [ ] **4.4** Crear sistema de transiciones suaves (ajustable por usuario) con MoviePy
+```
+
+```diff
+  - [ ] **6.3** Agregar configuraciones avanzadas (sensibilidad, transiciones)
+  - [ ] **6.4** Implementar resumenes y reportes de procesamiento
+- - [ ] **6.5** Crear documentación completa de uso
++ - [ ] **6.5** Generar subtítulos automáticos utilizando transcripciones de Whisper
++ - [ ] **6.6** Agregar opción para exportar transcripción completa del podcast
++ - [ ] **6.7** Crear documentación completa de uso
+  
+  ### Entregables:
+  - ✅ Sistema completo optimizado
++ - ✅ Funcionalidad de subtitulado automático
++ - ✅ Exportación de transcripciones
+  - ✅ Documentación de usuario
+  - ✅ Configuraciones avanzadas
+  
+  ### Testing:
+  - Pruebas de preview y procesamiento completo desde el CLI
++ - Verificación de calidad de subtítulos y transcripciones
+  
+  ---
+```
+
+```diff
+  │   │   ├── vad.py
+  │   │   └── speaker.py
++ │   ├── transcription/
++ │   │   ├── __init__.py
++ │   │   ├── whisper_transcriber.py
++ │   │   └── subtitle_generator.py
+  │   └── utils/
+  │       ├── __init__.py
+```
+
+```diff
+  4. **Optimización de memoria** para videos largos
+  5. **Progress tracking** detallado para el usuario con Rich
++ 6. **Selección de modelo de Whisper** según recursos disponibles (tiny, base, small, medium)
+  
+  ## Métricas de Éxito
+```
+
+```diff
+  - [ ] Procesamiento eficiente (< 2x tiempo real para video final)
+  - [ ] Sistema robusto ante variaciones de duración
+- - [ ] Interface intuitiva y fácil de usar 
++ - [ ] Interface intuitiva y fácil de usar
++ - [ ] Transcripción con > 90% de precisión 
+```
+
+---
+
+Ahora, vamos a crear un ejemplo básico del módulo de transcripción con Whisper para simplificar la Fase 2:
+
+---
+
+<details>
+            <summary>Listed directory src • **7** results</summary>
+        
+| Name |
+|-------|
+| 📁 `detection` |
+| 📁 `audio` |
+| 📁 `utils` |
+| 📁 `cli` |
+| 📁 `__pycache__` |
+| 📄 `__init__.py` |
+| 📁 `video` |
+
+</details>
+
+---
+
+```diff
+- 
++ """
++ Módulo para transcripción de audio y generación de subtítulos.
++ Implementa funcionalidades basadas en Whisper para transcribir audio y detectar speakers.
++ """
++ 
++ from src.transcription.whisper_transcriber import transcribe_audio, detect_speakers 
+```
+
+---
+
+```diff
+- 
++ """
++ Módulo para transcripción de audio utilizando Whisper.
++ Proporciona funciones para transcribir audio, detectar speakers y segmentar por actividad vocal.
++ """
++ 
++ import os
++ import logging
++ import numpy as np
++ from typing import Dict, List, Optional, Tuple, Any
++ from pathlib import Path
++ import whisper
++ from rich.progress import Progress, TaskID
++ import json
++ 
++ logger = logging.getLogger(__name__)
++ 
++ # Definición de modelos disponibles de Whisper
++ WHISPER_MODELS = {
++     "tiny": {"descripcion": "Muy rápido, precisión básica (~1GB VRAM)", "multilingual": True},
++     "base": {"descripcion": "Rápido, buena precisión (~1GB VRAM)", "multilingual": True},
++     "small": {"descripcion": "Equilibrado, muy buena precisión (~2GB VRAM)", "multilingual": True},
++     "medium": {"descripcion": "Alta precisión, más lento (~5GB VRAM)", "multilingual": True},
++     "large-v3": {"descripcion": "Máxima precisión, muy lento (~10GB VRAM)", "multilingual": True},
++ }
++ 
++ def transcribe_audio(
++     audio_path: str,
++     model_name: str = "medium",
++     language: str = "es",
++     output_dir: Optional[str] = None,
++     progress: Optional[Progress] = None,
++     task_id: Optional[TaskID] = None
++ ) -> Dict[str, Any]:
++     """
++     Transcribe un archivo de audio utilizando Whisper.
++     
++     Args:
++         audio_path: Ruta al archivo de audio
++         model_name: Tamaño del modelo de Whisper a utilizar
++         language: Código de idioma para la transcripción
++         output_dir: Directorio para guardar la transcripción
++         progress: Objeto Progress para mostrar progreso
++         task_id: ID de la tarea en el objeto Progress
++         
++     Returns:
++         Diccionario con la transcripción y metadatos
++     """
++     if progress and task_id:
++         progress.update(task_id, advance=10, description=f"[cyan]Cargando modelo Whisper {model_name}...")
++     
++     try:
++         # Validar archivo de entrada
++         if not os.path.isfile(audio_path):
++             raise FileNotFoundError(f"El archivo de audio no existe: {audio_path}")
++         
++         # Cargar modelo de Whisper
++         model = whisper.load_model(model_name)
++         
++         if progress and task_id:
++             progress.update(task_id, advance=20, description=f"[cyan]Transcribiendo audio...")
++         
++         # Realizar transcripción
++         result = model.transcribe(
++             audio_path,
++             language=language,
++             verbose=False
++         )
++         
++         if progress and task_id:
++             progress.update(task_id, advance=50, description=f"[cyan]Procesando resultados...")
++         
++         # Extraer información de segmentos
++         segments = []
++         for segment in result["segments"]:
++             segments.append({
++                 "id": segment["id"],
++                 "start": segment["start"],
++                 "end": segment["end"],
++                 "text": segment["text"],
++                 "speaker": None  # Se llenará más adelante
++             })
++         
++         # Crear resultado final
++         transcription_result = {
++             "text": result["text"],
++             "segments": segments,
++             "language": result["language"],
++             "audio_path": audio_path
++         }
++         
++         # Guardar transcripción en formato JSON si se proporciona output_dir
++         if output_dir:
++             os.makedirs(output_dir, exist_ok=True)
++             output_file = os.path.join(output_dir, f"{Path(audio_path).stem}_transcription.json")
++             
++             with open(output_file, "w", encoding="utf-8") as f:
++                 json.dump(transcription_result, f, ensure_ascii=False, indent=2)
++             
++             transcription_result["output_file"] = output_file
++         
++         if progress and task_id:
++             progress.update(task_id, completed=100, description=f"[green]Transcripción completada")
++         
++         return transcription_result
++         
++     except Exception as e:
++         logger.error(f"Error al transcribir audio {audio_path}: {str(e)}")
++         if progress and task_id:
++             progress.update(task_id, completed=100, description=f"[red]Error en transcripción")
++         raise
++ 
++ def detect_speakers(
++     transcription_results: List[Dict[str, Any]],
++     speaker_names: List[str],
++     progress: Optional[Progress] = None
++ ) -> Dict[str, Any]:
++     """
++     Asigna speakers a segmentos de transcripción basado en archivos de audio específicos por speaker.
++     
++     Args:
++         transcription_results: Lista de resultados de transcripción, uno por speaker
++         speaker_names: Lista de nombres de los speakers correspondientes a cada transcripción
++         progress: Objeto Progress para mostrar progreso
++         
++     Returns:
++         Diccionario con segmentos asignados a speakers
++     """
++     if len(transcription_results) != len(speaker_names):
++         raise ValueError("Debe haber la misma cantidad de transcripciones que de nombres de speakers")
++     
++     if progress:
++         task = progress.add_task("[cyan]Asignando speakers a segmentos...", total=100)
++         progress.update(task, advance=10)
++     
++     try:
++         # Crear timeline unificado con todos los segmentos
++         all_segments = []
++         for idx, result in enumerate(transcription_results):
++             speaker_name = speaker_names[idx]
++             
++             # Añadir cada segmento con su speaker asignado
++             for segment in result["segments"]:
++                 segment_copy = segment.copy()
++                 segment_copy["speaker"] = speaker_name
++                 segment_copy["source_audio"] = result["audio_path"]
++                 all_segments.append(segment_copy)
++         
++         # Ordenar por tiempo de inicio
++         all_segments.sort(key=lambda x: x["start"])
++         
++         if progress:
++             progress.update(task, advance=40, description="[cyan]Resolviendo solapamientos...")
++         
++         # Resolver solapamientos
++         timeline = resolve_overlaps(all_segments)
++         
++         if progress:
++             progress.update(task, completed=100, description="[green]Detección de speakers completada")
++         
++         return {
++             "timeline": timeline,
++             "speakers": speaker_names,
++             "speaker_count": len(speaker_names)
++         }
++         
++     except Exception as e:
++         logger.error(f"Error al asignar speakers: {str(e)}")
++         if progress:
++             progress.update(task, completed=100, description="[red]Error en detección de speakers")
++         raise
++ 
++ def resolve_overlaps(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
++     """
++     Resuelve solapamientos entre segmentos de diferentes speakers.
++     
++     Args:
++         segments: Lista de segmentos con información de speaker
++         
++     Returns:
++         Lista de segmentos sin solapamientos
++     """
++     if not segments:
++         return []
++     
++     # Si solo hay un segmento, no hay solapamientos
++     if len(segments) == 1:
++         return segments
++     
++     resolved_segments = [segments[0]]
++     
++     for current in segments[1:]:
++         last = resolved_segments[-1]
++         
++         # Verificar si hay solapamiento
++         if current["start"] < last["end"]:
++             # Caso 1: El segmento actual está completamente dentro del anterior
++             if current["end"] <= last["end"]:
++                 # Si el segmento actual es más corto que 1 segundo, ignorarlo
++                 if current["end"] - current["start"] < 1.0:
++                     continue
++                 
++                 # Si no, dividir el segmento anterior
++                 if current["start"] - last["start"] > 1.0:
++                     # Crear un segmento para la primera parte
++                     first_part = last.copy()
++                     first_part["end"] = current["start"]
++                     first_part["text"] = first_part["text"].split(".")[0] + "." if "." in first_part["text"] else first_part["text"]
++                     
++                     # Reemplazar el último segmento con la primera parte
++                     resolved_segments[-1] = first_part
++                     
++                     # Añadir el segmento actual
++                     resolved_segments.append(current)
++                 
++             # Caso 2: Solapamiento parcial
++             else:
++                 # Si el solapamiento es pequeño (<0.5s), ajustar los tiempos
++                 overlap_duration = last["end"] - current["start"]
++                 if overlap_duration < 0.5:
++                     last["end"] = current["start"]
++                     resolved_segments.append(current)
++                 else:
++                     # Si hay solapamiento significativo, decidir basado en duración
++                     # Preferir el segmento más largo
++                     last_duration = last["end"] - last["start"]
++                     current_duration = current["end"] - current["start"]
++                     
++                     if current_duration > last_duration:
++                         # Recortar el segmento anterior
++                         last["end"] = current["start"]
++                         resolved_segments.append(current)
++                     else:
++                         # Recortar el segmento actual
++                         current["start"] = last["end"]
++                         if current["end"] - current["start"] > 0.5:  # Solo añadir si queda suficiente duración
++                             resolved_segments.append(current)
++         else:
++             # No hay solapamiento, añadir el segmento
++             resolved_segments.append(current)
++     
++     return resolved_segments
++ 
++ def get_voice_segments(
++     timeline: List[Dict[str, Any]],
++     speaker_name: str,
++     format_type: str = "seconds"
++ ) -> List[Dict[str, Any]]:
++     """
++     Extrae los segmentos de voz de un speaker específico.
++     
++     Args:
++         timeline: Lista de segmentos con información de speaker
++         speaker_name: Nombre del speaker a filtrar
++         format_type: Formato de salida ('seconds', 'frames', 'timecode')
++         
++     Returns:
++         Lista de segmentos del speaker especificado
++     """
++     # Filtrar segmentos por speaker
++     speaker_segments = [s for s in timeline if s["speaker"] == speaker_name]
++     
++     # Formato de salida
++     fps = 30  # Frames por segundo para formato de video
++     result = []
++     
++     for segment in speaker_segments:
++         start_sec = segment["start"]
++         end_sec = segment["end"]
++         
++         if format_type == "seconds":
++             formatted_segment = {
++                 "start": start_sec,
++                 "end": end_sec,
++                 "duration": end_sec - start_sec,
++                 "text": segment["text"]
++             }
++         elif format_type == "frames":
++             # Convertir a frames (para edición de video)
++             start_frame = int(start_sec * fps)
++             end_frame = int(end_sec * fps)
++             formatted_segment = {
++                 "start_frame": start_frame,
++                 "end_frame": end_frame,
++                 "duration_frames": end_frame - start_frame,
++                 "text": segment["text"]
++             }
++         elif format_type == "timecode":
++             # Convertir a timecode HH:MM:SS.ms
++             start_tc = format_timecode(start_sec)
++             end_tc = format_timecode(end_sec)
++             formatted_segment = {
++                 "start_tc": start_tc,
++                 "end_tc": end_tc,
++                 "duration_seconds": end_sec - start_sec,
++                 "text": segment["text"]
++             }
++         else:
++             raise ValueError(f"Formato desconocido: {format_type}")
++             
++         result.append(formatted_segment)
++     
++     return result
++ 
++ def format_timecode(seconds: float) -> str:
++     """
++     Formatea segundos a timecode HH:MM:SS.ms.
++     
++     Args:
++         seconds: Tiempo en segundos
++         
++     Returns:
++         String con formato de timecode
++     """
++     hours = int(seconds // 3600)
++     minutes = int((seconds % 3600) // 60)
++     secs = int(seconds % 60)
++     ms = int((seconds % 1) * 1000)
++     
++     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{ms:03d}" 
+```
+
+---
+
+```diff
+- 
++ """
++ Módulo para generar subtítulos a partir de transcripciones de Whisper.
++ Soporta formatos SRT y VTT para su uso en reproductores de video.
++ """
++ 
++ import os
++ import logging
++ from typing import Dict, List, Optional, Any
++ from pathlib import Path
++ from rich.progress import Progress, TaskID
++ 
++ logger = logging.getLogger(__name__)
++ 
++ def generate_subtitles(
++     timeline: List[Dict[str, Any]],
++     output_file: str,
++     format_type: str = "srt",
++     include_speaker_names: bool = True,
++     progress: Optional[Progress] = None,
++     task_id: Optional[TaskID] = None
++ ) -> str:
++     """
++     Genera archivo de subtítulos a partir de un timeline de segmentos.
++     
++     Args:
++         timeline: Lista de segmentos con información de tiempo y texto
++         output_file: Ruta para el archivo de subtítulos
++         format_type: Formato de subtítulos ('srt' o 'vtt')
++         include_speaker_names: Si se debe incluir el nombre del speaker en el subtítulo
++         progress: Objeto Progress para mostrar progreso
++         task_id: ID de la tarea en el objeto Progress
++         
++     Returns:
++         Ruta al archivo de subtítulos generado
++     """
++     if progress and task_id:
++         progress.update(task_id, advance=10, description=f"[cyan]Generando subtítulos en formato {format_type}...")
++     
++     try:
++         # Asegurar que la extensión del archivo sea correcta
++         base_name = os.path.splitext(output_file)[0]
++         if format_type.lower() == "srt":
++             output_file = f"{base_name}.srt"
++             subtitle_content = generate_srt(timeline, include_speaker_names)
++         elif format_type.lower() == "vtt":
++             output_file = f"{base_name}.vtt"
++             subtitle_content = generate_vtt(timeline, include_speaker_names)
++         else:
++             raise ValueError(f"Formato de subtítulos no soportado: {format_type}")
++         
++         if progress and task_id:
++             progress.update(task_id, advance=40, description=f"[cyan]Guardando archivo de subtítulos...")
++         
++         # Crear directorio si no existe
++         os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
++         
++         # Guardar archivo
++         with open(output_file, "w", encoding="utf-8") as f:
++             f.write(subtitle_content)
++         
++         if progress and task_id:
++             progress.update(task_id, completed=100, description=f"[green]Subtítulos generados: {os.path.basename(output_file)}")
++         
++         return output_file
++         
++     except Exception as e:
++         logger.error(f"Error al generar subtítulos: {str(e)}")
++         if progress and task_id:
++             progress.update(task_id, completed=100, description=f"[red]Error al generar subtítulos")
++         raise
++ 
++ def generate_srt(timeline: List[Dict[str, Any]], include_speaker_names: bool = True) -> str:
++     """
++     Genera subtítulos en formato SRT.
++     
++     Args:
++         timeline: Lista de segmentos con información de tiempo y texto
++         include_speaker_names: Si se debe incluir el nombre del speaker en el subtítulo
++         
++     Returns:
++         Contenido del archivo SRT
++     """
++     srt_content = ""
++     
++     for i, segment in enumerate(timeline, 1):
++         # Convertir tiempos a formato SRT (HH:MM:SS,mmm)
++         start_time = format_srt_time(segment["start"])
++         end_time = format_srt_time(segment["end"])
++         
++         # Formatear texto con nombre del speaker si es necesario
++         text = segment["text"].strip()
++         if include_speaker_names and "speaker" in segment and segment["speaker"]:
++             text = f"[{segment['speaker']}] {text}"
++         
++         # Añadir subtítulo
++         srt_content += f"{i}\n{start_time} --> {end_time}\n{text}\n\n"
++     
++     return srt_content
++ 
++ def generate_vtt(timeline: List[Dict[str, Any]], include_speaker_names: bool = True) -> str:
++     """
++     Genera subtítulos en formato WebVTT.
++     
++     Args:
++         timeline: Lista de segmentos con información de tiempo y texto
++         include_speaker_names: Si se debe incluir el nombre del speaker en el subtítulo
++         
++     Returns:
++         Contenido del archivo VTT
++     """
++     vtt_content = "WEBVTT\n\n"
++     
++     for i, segment in enumerate(timeline, 1):
++         # Convertir tiempos a formato VTT (HH:MM:SS.mmm)
++         start_time = format_vtt_time(segment["start"])
++         end_time = format_vtt_time(segment["end"])
++         
++         # Formatear texto con nombre del speaker si es necesario
++         text = segment["text"].strip()
++         if include_speaker_names and "speaker" in segment and segment["speaker"]:
++             text = f"<v {segment['speaker']}>{text}</v>"
++         
++         # Añadir subtítulo
++         vtt_content += f"{start_time} --> {end_time}\n{text}\n\n"
++     
++     return vtt_content
++ 
++ def format_srt_time(seconds: float) -> str:
++     """
++     Formatea segundos a formato de tiempo SRT (HH:MM:SS,mmm).
++     
++     Args:
++         seconds: Tiempo en segundos
++         
++     Returns:
++         String con formato de tiempo SRT
++     """
++     hours = int(seconds // 3600)
++     minutes = int((seconds % 3600) // 60)
++     secs = int(seconds % 60)
++     millis = int((seconds % 1) * 1000)
++     
++     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
++ 
++ def format_vtt_time(seconds: float) -> str:
++     """
++     Formatea segundos a formato de tiempo VTT (HH:MM:SS.mmm).
++     
++     Args:
++         seconds: Tiempo en segundos
++         
++     Returns:
++         String con formato de tiempo VTT
++     """
++     hours = int(seconds // 3600)
++     minutes = int((seconds % 3600) // 60)
++     secs = int(seconds % 60)
++     millis = int((seconds % 1) * 1000)
++     
++     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
++ 
++ def generate_transcript_file(
++     timeline: List[Dict[str, Any]],
++     output_file: str,
++     include_timestamps: bool = True,
++     include_speaker_names: bool = True,
++     progress: Optional[Progress] = None,
++     task_id: Optional[TaskID] = None
++ ) -> str:
++     """
++     Genera un archivo de transcripción en texto plano.
++     
++     Args:
++         timeline: Lista de segmentos con información de tiempo y texto
++         output_file: Ruta para el archivo de transcripción
++         include_timestamps: Si se deben incluir marcas de tiempo
++         include_speaker_names: Si se debe incluir el nombre del speaker
++         progress: Objeto Progress para mostrar progreso
++         task_id: ID de la tarea en el objeto Progress
++         
++     Returns:
++         Ruta al archivo de transcripción generado
++     """
++     if progress and task_id:
++         progress.update(task_id, advance=10, description=f"[cyan]Generando transcripción en texto plano...")
++     
++     try:
++         # Asegurar que la extensión del archivo sea correcta
++         base_name = os.path.splitext(output_file)[0]
++         output_file = f"{base_name}.txt"
++         
++         # Generar contenido
++         transcript_content = ""
++         
++         for segment in timeline:
++             line = ""
++             
++             # Añadir timestamp si es necesario
++             if include_timestamps:
++                 timestamp = format_readable_time(segment["start"])
++                 line += f"[{timestamp}] "
++             
++             # Añadir nombre del speaker si es necesario
++             if include_speaker_names and "speaker" in segment and segment["speaker"]:
++                 line += f"{segment['speaker']}: "
++             
++             # Añadir texto
++             line += f"{segment['text'].strip()}\n"
++             
++             transcript_content += line
++         
++         if progress and task_id:
++             progress.update(task_id, advance=40, description=f"[cyan]Guardando archivo de transcripción...")
++         
++         # Crear directorio si no existe
++         os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
++         
++         # Guardar archivo
++         with open(output_file, "w", encoding="utf-8") as f:
++             f.write(transcript_content)
++         
++         if progress and task_id:
++             progress.update(task_id, completed=100, description=f"[green]Transcripción generada: {os.path.basename(output_file)}")
++         
++         return output_file
++         
++     except Exception as e:
++         logger.error(f"Error al generar transcripción: {str(e)}")
++         if progress and task_id:
++             progress.update(task_id, completed=100, description=f"[red]Error al generar transcripción")
++         raise
++ 
++ def format_readable_time(seconds: float) -> str:
++     """
++     Formatea segundos a un formato de tiempo legible (HH:MM:SS).
++     
++     Args:
++         seconds: Tiempo en segundos
++         
++     Returns:
++         String con formato de tiempo legible
++     """
++     hours = int(seconds // 3600)
++     minutes = int((seconds % 3600) // 60)
++     secs = int(seconds % 60)
++     
++     if hours > 0:
++         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
++     else:
++         return f"{minutes:02d}:{secs:02d}" 
+```
+
+---
+
+He actualizado los archivos según lo solicitado:
+
+1. **Actualización de environment.yml**: He añadido `openai-whisper` como dependencia en el archivo de entorno para integrar Whisper en el proyecto.
+
+2. **Actualización de PLAN_DE_ACCION.md**: 
+   - He modificado la Fase 2 para utilizar Whisper en lugar de los métodos tradicionales de análisis de audio.
+   - He añadido Whisper a las tecnologías principales.
+   - He actualizado los entregables de la Fase 2 para incluir la transcripción y detección de speakers.
+   - He ajustado la Fase 4 para aprovechar los resultados de Whisper.
+   - He añadido nuevas tareas en la Fase 6 para generar subtítulos automáticos y exportar transcripciones.
+   - He actualizado la estructura del proyecto añadiendo un módulo de transcripción.
+   - He añadido una métrica de éxito para la precisión de transcripción.
+
+3. **Creación del módulo de transcripción**:
+   - He creado la carpeta `src/transcription` con los archivos necesarios.
+   - El archivo `whisper_transcriber.py` implementa funciones para transcribir audio y detectar speakers.
+   - El archivo `subtitle_generator.py` implementa funciones para generar subtítulos y transcripciones.
+
+La integración de Whisper simplifica enormemente la Fase 2 del proyecto al proporcionar:
+
+1. Detección de actividad vocal (VAD) más precisa y automática
+2. Identificación de speakers basada en la transcripción
+3. Segmentación temporal exacta de cada intervención
+4. Capacidad para generar subtítulos y transcripciones como funcionalidad adicional
+
+Con estos cambios, el proyecto ahora puede aprovechar las capacidades de un modelo de IA avanzado para análisis de audio, lo que mejora la precisión y reduce el código necesario para implementar estas funcionalidades desde cero.
+
+---
+
+_**User**_
+
+actualiza el plan de accion con lo que hiciste en este chat
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+
+
+---
+
+
+
+---
+
