@@ -5,9 +5,11 @@ channels:
 dependencies:
   - python=3.10
   - ffmpeg
+  - moviepy
   - numpy
+  - pytorch
+  - torchaudio
+  - torchvision
   - pip
   - pip:
-      - openai-whisper
-      - moviepy
-      - torch
+      - git+https://github.com/openai/whisper.git
