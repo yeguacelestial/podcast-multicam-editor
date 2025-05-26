@@ -12,6 +12,10 @@ import sys
 import tempfile
 import json
 import re
+import wave
+from typing import Tuple
+from tqdm import tqdm
+import time
 
 def check_dependencies():
     """Verifica que ffmpeg esté instalado"""
@@ -219,137 +223,231 @@ def create_preview_clips(video1_path, video2_path, preview_duration):
     print(f"✅ Clips de preview creados")
     return temp_video1, temp_video2
 
-def process_videos_fast(video1_path, video2_path, output_path, preview_duration=None):
+def extract_audio(input_path: str, output_path: str, duration: float = None) -> None:
     """
-    Procesamiento ultra-optimizado usando concat demuxer de ffmpeg
+    Extrae el audio de un video o archivo de audio a un archivo WAV mono.
+    Si duration está definido, recorta a los primeros N segundos.
     """
-    print("🚀 Iniciando procesamiento optimizado...")
-    
-    # Si es preview, crear clips temporales primero
+    cmd = [
+        'ffmpeg',
+        '-i', input_path,
+        '-ac', '1',  # Mono
+        '-ar', '16000',  # 16kHz para eficiencia
+        '-vn',  # Sin video
+        '-y',
+    ]
+    if duration:
+        cmd += ['-t', str(duration)]
+    cmd += [output_path]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Error extrayendo audio: {result.stderr}")
+
+def read_wav_mono(path: str) -> np.ndarray:
+    """Lee un archivo WAV mono y lo retorna como un array de float32 normalizado."""
+    with wave.open(path, 'rb') as wf:
+        assert wf.getnchannels() == 1
+        frames = wf.readframes(wf.getnframes())
+        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32)
+        audio /= 32768.0
+    return audio
+
+def find_offset(ref: np.ndarray, target: np.ndarray, max_shift: int = 16000*5) -> int:
+    """
+    Calcula el offset óptimo (en muestras) para alinear target con ref usando correlación cruzada.
+    max_shift limita el desfase máximo buscado (por defecto 5s a 16kHz).
+    """
+    if len(target) > len(ref):
+        target = target[:len(ref)]
+    if len(ref) > len(target):
+        ref = ref[:len(target)]
+    corr = np.correlate(ref, target, mode='full')
+    mid = len(corr) // 2
+    search_range = (mid - max_shift, mid + max_shift)
+    best = np.argmax(corr[search_range[0]:search_range[1]])
+    offset = best + search_range[0] - mid
+    return offset
+
+def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, preview_duration=None):
+    """
+    Procesamiento optimizado con sincronización respecto a audio de referencia.
+    """
+    etapas = [
+        "Recortando videos y audio de referencia (si preview)",
+        "Extrayendo audios de los videos y referencia",
+        "Sincronizando audios",
+        "Recortando videos según offset",
+        "Analizando energía y silencios",
+        "Ensamblando video final"
+    ]
+    progreso = tqdm(total=len(etapas), bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]', desc='Progreso general')
+    tiempo_inicio = time.time()
+
     temp_files = []
     work_video1 = video1_path
     work_video2 = video2_path
-    
-    if preview_duration:
-        work_video1, work_video2 = create_preview_clips(video1_path, video2_path, preview_duration)
-        if work_video1 is None or work_video2 is None:
-            return False
-        temp_files.extend([work_video1, work_video2])
-    
-    try:
-        # Analizar los videos de trabajo (completos o clips de preview)
-        duration1, vol1, silence1 = get_audio_energy_fast(work_video1)
-        duration2, vol2, silence2 = get_audio_energy_fast(work_video2)
-    
-        print(f"📊 Video 1: {duration1:.1f}s, {vol1:.1f}dB, {len(silence1)} silencios")
-        print(f"📊 Video 2: {duration2:.1f}s, {vol2:.1f}dB, {len(silence2)} silencios")
-        
-        # Para preview, no necesitamos recortar más (ya está recortado)
-        # Para procesamiento completo, usar toda la duración
-        work_duration = min(duration1, duration2)
-        
-        # Crear timeline simplificada
-        segments = create_simple_timeline(duration1, vol1, silence1, duration2, vol2, silence2)
-        
-        print(f"🎬 Generando {len(segments)} segmentos...")
-        for i, (start, end, speaker) in enumerate(segments):
-            print(f"  Segmento {i+1}: {start:.1f}s-{end:.1f}s -> Cámara {speaker}")
-        
-        # Método ultra-rápido: usar filter_complex 
-        filter_parts = []
-        
-        # Preparar inputs de VIDEO para cada segmento (solo video, no audio)
-        for i, (start, end, speaker) in enumerate(segments):
-            input_idx = 0 if speaker == 1 else 1
-            duration = end - start
-            
-            # Solo trim del video, NO del audio
-            filter_parts.append(f"[{input_idx}:v]trim=start={start:.2f}:duration={duration:.2f},setpts=PTS-STARTPTS[v{i}];")
-        
-        # Concatenar todos los segmentos de VIDEO
-        n_segments = len(segments)
-        video_concat = "".join([f"[v{i}]" for i in range(n_segments)])
-        filter_parts.append(f"{video_concat}concat=n={n_segments}:v=1:a=0[outv];")
-        
-        # AUDIO: Mezclar ambas pistas completas durante toda la duración
-        work_duration = min(duration1, duration2)
-        filter_parts.append(f"[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[outa]")
-        
-        complex_filter = "".join(filter_parts)
-        
-        # Comando ffmpeg ultra-optimizado para M1 usando los videos de trabajo
+    work_audio_ref = ref_audio_path
+    duration = preview_duration
+
+    # 1. Recorte de videos/audio si preview
+    if duration:
+        progreso.set_description(etapas[0])
+        def cut_clip(input_path, suffix):
+            temp_clip = tempfile.NamedTemporaryFile(suffix=suffix, delete=False).name
+            temp_files.append(temp_clip)
+            cmd = [
+                'ffmpeg', '-i', input_path,
+                '-t', str(duration),
+                '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-y', temp_clip
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(f"Error recortando clip: {result.stderr}")
+            return temp_clip
+        work_video1 = cut_clip(video1_path, '_preview1.mp4')
+        work_video2 = cut_clip(video2_path, '_preview2.mp4')
+        # Recortar el audio de referencia a WAV mono 16kHz
+        temp_audio_ref = tempfile.NamedTemporaryFile(suffix='_ref_preview.wav', delete=False).name
+        temp_files.append(temp_audio_ref)
         cmd = [
-            'ffmpeg',
-            '-i', work_video1,
-            '-i', work_video2,
-            '-filter_complex', complex_filter,
-            '-map', '[outv]',
-            '-map', '[outa]',
-            # Configuración optimizada para M1
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',  # Máxima velocidad
-            '-crf', '25',  # Balance velocidad/calidad
-            '-tune', 'fastdecode',
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-movflags', '+faststart',  # Optimización para reproducción rápida
-            '-threads', '0',  # Usar todos los cores disponibles
-            '-y',
-            output_path
+            'ffmpeg', '-i', ref_audio_path,
+            '-t', str(duration),
+            '-ac', '1', '-ar', '16000', '-vn', '-y', temp_audio_ref
         ]
-        
-        print("⚡ Generando video final...")
-        print(f"🔧 Comando: ffmpeg con {len(segments)} segmentos")
-        
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
         if result.returncode != 0:
-            print(f"❌ Error en ffmpeg: {result.stderr}")
-            return False
-        
-        print(f"✅ Video generado exitosamente: {output_path}")
-        return True
-    
-    finally:
-        # Limpiar archivos temporales
-        for temp_file in temp_files:
-            try:
-                if os.path.exists(temp_file):
-                    os.unlink(temp_file)
-                    print(f"🧹 Limpiado: {os.path.basename(temp_file)}")
-            except Exception as e:
-                print(f"⚠️  No se pudo limpiar {temp_file}: {e}")
+            raise RuntimeError(f"Error recortando audio de referencia: {result.stderr}")
+        work_audio_ref = temp_audio_ref
+    progreso.update(1)
+
+    # 2. Extracción de audios
+    progreso.set_description(etapas[1])
+    temp_audio1 = tempfile.NamedTemporaryFile(suffix='_v1.wav', delete=False).name
+    temp_audio2 = tempfile.NamedTemporaryFile(suffix='_v2.wav', delete=False).name
+    temp_audio_ref = tempfile.NamedTemporaryFile(suffix='_ref.wav', delete=False).name
+    temp_files += [temp_audio1, temp_audio2, temp_audio_ref]
+    extract_audio(work_video1, temp_audio1, None)
+    extract_audio(work_video2, temp_audio2, None)
+    extract_audio(work_audio_ref, temp_audio_ref, None)
+    progreso.update(1)
+
+    # 3. Sincronización (solo primeros 10s)
+    progreso.set_description(etapas[2])
+    audio1 = read_wav_mono(temp_audio1)
+    audio2 = read_wav_mono(temp_audio2)
+    audio_ref = read_wav_mono(temp_audio_ref)
+    sample_rate = 16000
+    sync_seconds = min(10, len(audio_ref)//sample_rate, len(audio1)//sample_rate, len(audio2)//sample_rate)
+    if duration:
+        sync_seconds = min(sync_seconds, duration)
+    n_samples = int(sync_seconds * sample_rate)
+    offset1 = find_offset(audio_ref[:n_samples], audio1[:n_samples])
+    offset2 = find_offset(audio_ref[:n_samples], audio2[:n_samples])
+    print(f"🔄 Offset video1: {offset1/sample_rate:.3f}s, video2: {offset2/sample_rate:.3f}s")
+    progreso.update(1)
+
+    # 4. Recorte por offset
+    progreso.set_description(etapas[3])
+    def trim_video(input_path, offset_samples):
+        offset_sec = max(0, -offset_samples/sample_rate)
+        temp_vid = tempfile.NamedTemporaryFile(suffix='_sync.mp4', delete=False).name
+        temp_files.append(temp_vid)
+        cmd = [
+            'ffmpeg', '-i', input_path,
+            '-ss', f'{offset_sec:.3f}',
+            '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-y', temp_vid
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Error sincronizando video: {result.stderr}")
+        return temp_vid
+    sync_video1 = trim_video(work_video1, offset1)
+    sync_video2 = trim_video(work_video2, offset2)
+    temp_files += [sync_video1, sync_video2]
+    progreso.update(1)
+
+    # 5. Análisis de energía/silencios
+    progreso.set_description(etapas[4])
+    duration1, vol1, silence1 = get_audio_energy_fast(sync_video1)
+    duration2, vol2, silence2 = get_audio_energy_fast(sync_video2)
+    print(f"📊 Video 1: {duration1:.1f}s, {vol1:.1f}dB, {len(silence1)} silencios")
+    print(f"📊 Video 2: {duration2:.1f}s, {vol2:.1f}dB, {len(silence2)} silencios")
+    segments = create_simple_timeline(duration1, vol1, silence1, duration2, vol2, silence2)
+    print(f"🎬 Generando {len(segments)} segmentos...")
+    for i, (start, end, speaker) in enumerate(segments):
+        print(f"  Segmento {i+1}: {start:.1f}s-{end:.1f}s -> Cámara {speaker}")
+    progreso.update(1)
+
+    # 6. Ensamblaje final
+    progreso.set_description(etapas[5])
+    filter_parts = []
+    for i, (start, end, speaker) in enumerate(segments):
+        input_idx = 0 if speaker == 1 else 1
+        duration = end - start
+        filter_parts.append(f"[{input_idx}:v]trim=start={start:.2f}:duration={duration:.2f},setpts=PTS-STARTPTS[v{i}];")
+    n_segments = len(segments)
+    video_concat = "".join([f"[v{i}]" for i in range(n_segments)])
+    filter_parts.append(f"{video_concat}concat=n={n_segments}:v=1:a=0[outv];")
+    # Mezclar los audios sincronizados
+    filter_parts.append(f"[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[outa]")
+    complex_filter = "".join(filter_parts)
+    cmd = [
+        'ffmpeg',
+        '-i', sync_video1,
+        '-i', sync_video2,
+        '-filter_complex', complex_filter,
+        '-map', '[outv]',
+        '-map', '[outa]',  # Mezcla de ambas tomas
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-crf', '25',
+        '-tune', 'fastdecode',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-movflags', '+faststart',
+        '-threads', '0',
+        '-y',
+        output_path
+    ]
+    print("⚡ Generando video final...")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"❌ Error en ffmpeg: {result.stderr}")
+        progreso.close()
+        return False
+    print(f"✅ Video generado exitosamente: {output_path}")
+    progreso.update(1)
+    progreso.close()
+    tiempo_total = time.time() - tiempo_inicio
+    print(f"⏱️  Tiempo total transcurrido: {tiempo_total:.1f} segundos")
+    return True
 
 def main():
     parser = argparse.ArgumentParser(description='Cambio automático de cámaras ultra-optimizado')
     parser.add_argument('video1', help='Primer video (persona 1)')
     parser.add_argument('video2', help='Segundo video (persona 2)')
+    parser.add_argument('audio_ref', help='Audio mezcla final de referencia')
     parser.add_argument('-o', '--output', default='output_switched.mp4', help='Archivo de salida')
     parser.add_argument('-p', '--preview', type=int, help='Duración del preview en segundos')
     parser.add_argument('--min-segment', type=float, default=2.0, help='Duración mínima de segmento en segundos')
-    
     args = parser.parse_args()
-    
-    # Verificar dependencias
     check_dependencies()
-    
-    # Verificar que los archivos existan
     if not os.path.exists(args.video1):
         print(f"❌ Error: {args.video1} no existe")
         sys.exit(1)
-    
     if not os.path.exists(args.video2):
         print(f"❌ Error: {args.video2} no existe")
         sys.exit(1)
-    
-    # Procesar videos con optimización máxima
+    if not os.path.exists(args.audio_ref):
+        print(f"❌ Error: {args.audio_ref} no existe")
+        sys.exit(1)
     success = process_videos_fast(
-        args.video1, 
-        args.video2, 
-        args.output, 
+        args.video1,
+        args.video2,
+        args.audio_ref,
+        args.output,
         preview_duration=args.preview
     )
-    
     if success:
         print(f"\n🎉 Proceso completado!")
         print(f"📹 Video generado: {args.output}")
