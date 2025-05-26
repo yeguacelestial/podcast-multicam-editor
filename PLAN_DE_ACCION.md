@@ -113,15 +113,19 @@ python tests/test_sync.py --reference audio_speaker1.wav --target video_speaker1
 
 ### Tareas:
 - [x] **4.1** Utilizar resultados de Whisper para identificación precisa de speaker activo
-- [ ] **4.2** Analizar energía por pista para refinar la detección de Whisper
-- [ ] **4.3** Implementar filtros para evitar cambios muy rápidos
-- [ ] **4.4** Crear sistema de transiciones suaves (ajustable por usuario) con MoviePy
-- [ ] **4.5** Manejar casos de overlap de speakers
+- [x] **4.2** Analizar energía por pista para refinar la detección de Whisper
+- [x] **4.3** Implementar filtros para evitar cambios muy rápidos
+- [x] **4.4** Crear sistema de transiciones suaves (ajustable por usuario) con MoviePy
+- [x] **4.5** Manejar casos de overlap de speakers
 
 ### Entregables:
 - ✅ Sistema de detección de speaker confiable
 - ✅ Timeline de cambios de cámara
 - ✅ Configuración de sensibilidad ajustable desde el CLI
+
+### Archivos Implementados:
+- `src/detection/speaker.py`: Módulo para detección de speaker activo, análisis de energía y manejo de solapamientos
+- `src/detection/vad.py`: Módulo para detección de actividad vocal
 
 ### Testing:
 - Selección de sensibilidad de cambio de cámara desde el CLI y verificación de resultados
@@ -273,3 +277,25 @@ El módulo de sincronización implementa un sistema de tres niveles para garanti
 5. **Timeline unificado**: Genera un timeline preciso que combina offset inicial, corrección de drift y ajustes por segmentos para cada punto del audio.
 
 El módulo incluye herramientas de prueba y visualización para verificar la calidad de la sincronización en cada etapa del proceso. 
+
+### Módulo de detección de speaker activo
+
+El módulo de detección de speaker activo implementa un sistema multi-nivel para identificar con precisión qué speaker está hablando en cada momento:
+
+1. **Análisis de energía por pista**: Analiza la energía de cada pista de audio para determinar quién está hablando con mayor intensidad en cada segmento.
+
+2. **Refinamiento de detección Whisper**: Utiliza los resultados de Whisper como base y los refina mediante análisis de energía para resolver ambigüedades y mejorar la precisión.
+
+3. **Filtrado de cambios rápidos**: Elimina cambios de cámara demasiado cortos para evitar una edición frenética, agrupando segmentos y asignándolos al speaker dominante.
+
+4. **Manejo de solapamientos**: Detecta y gestiona casos donde dos speakers hablan simultáneamente, decidiendo entre mostrar al speaker dominante o crear segmentos especiales de overlap.
+
+5. **Generación de timeline de cámara**: Crea un timeline preciso de cambios de cámara con transiciones configurables (instantáneas, suaves, muy suaves) según las preferencias del usuario.
+
+El sistema incluye parámetros ajustables para:
+- Duración mínima de cada plano (evitando cortes muy rápidos)
+- Nivel de suavidad de las transiciones (desde cortes directos hasta transiciones lentas)
+- Umbral de sensibilidad para detección de overlaps
+- Ratio de energía para decidir el speaker dominante
+
+El resultado es un sistema de detección robusto que proporciona cambios de cámara naturales y profesionales, siguiendo el flujo de la conversación. 

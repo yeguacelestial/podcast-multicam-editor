@@ -26,7 +26,7 @@ WHISPER_MODELS = {
 def transcribe_audio(
     audio_path: str,
     model_name: str = "medium",
-    language: str = "es",
+    language: str = "es-MX",
     output_dir: Optional[str] = None,
     progress: Optional[Progress] = None,
     task_id: Optional[TaskID] = None
