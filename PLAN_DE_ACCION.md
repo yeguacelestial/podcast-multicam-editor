@@ -133,36 +133,26 @@ python tests/test_sync.py --reference audio_speaker1.wav --target video_speaker1
 ---
 
 ## FASE 5: Generación de Video Final
-**Objetivo:** Componer el video final con cambios automáticos de cámara
+**Objetivo:** Componer el video final con cambios automáticos de cámara usando ffmpeg
 
 ### Tareas:
-- [x] **5.1** Implementar sistema de cortes de video basado en timeline con MoviePy
-- [x] **5.2** Sincronizar audio maestro con video resultante
+- [x] **5.1** Implementar sistema de cortes de video basado en timeline con ffmpeg
+- [x] **5.2** Sincronizar audio maestro normalizado con video resultante
 - [x] **5.3** Manejar casos de video faltante (mostrar cámara disponible)
-- [x] **5.4** Optimizar renderizado para videos largos (1-2 horas) con procesamiento por chunks
-- [x] **5.5** Agregar metadatos y configuraciones de calidad usando FFmpeg
-- [x] **5.6** Implementar modo preview para renderizar solo los primeros 5 minutos
-- [x] **5.7** Añadir logs detallados y barras de progreso para cada fase del proceso
+- [x] **5.4** Optimizar renderizado para videos largos con procesamiento por chunks
+- [x] **5.5** Agregar metadatos y configuraciones de calidad usando ffmpeg
+- [x] **5.6** Implementar modo preview para procesar solo los primeros N minutos
+- [x] **5.7** Añadir logs detallados y barra de progreso en todo el proceso
 
 ### Entregables:
-- ✅ Video final sincronizado
+- ✅ Video final sincronizado y eficiente
 - ✅ Sistema optimizado para archivos grandes
 - ✅ Configuraciones de calidad ajustables desde el CLI
-- ✅ Opción de preview rápido (5 minutos) para pruebas
-- ✅ Sistema completo de logs y barras de progreso
-
-### Archivos Implementados:
-- `src/video/processor.py`: Módulo para procesar clips de video, implementar transiciones y optimizar rendimiento
-- `src/video/composer.py`: Módulo de alto nivel para orquestar el proceso de generación de video final
+- ✅ Modo preview para pruebas rápidas
+- ✅ Logs y barra de progreso detallados
 
 ### Testing:
-```bash
-# Modo completo
-python main.py
-
-# Modo preview (solo procesa 5 minutos)
-python main.py --preview
-```
+- Proceso completo y preview desde el CLI, con feedback y barra de progreso
 
 ---
 
@@ -170,10 +160,10 @@ python main.py --preview
 **Objetivo:** Pulir el sistema y agregar características adicionales
 
 ### Tareas:
-- [x] **6.1** Implementar preview de 5 minutos para testing rápido
+- [x] **6.1** Implementar preview configurable (1-5 minutos) para testing rápido
 - [ ] **6.2** Optimizar rendimiento para archivos grandes
-- [ ] **6.3** Agregar configuraciones avanzadas (sensibilidad, transiciones)
-- [ ] **6.4** Implementar resumenes y reportes de procesamiento
+- [ ] **6.3** Agregar configuraciones avanzadas (sensibilidad, transiciones, normalización)
+- [ ] **6.4** Implementar resúmenes y reportes de procesamiento
 - [x] **6.5** Generar subtítulos automáticos utilizando transcripciones de Whisper
 - [x] **6.6** Agregar opción para exportar transcripción completa del podcast
 - [ ] **6.7** Crear documentación completa de uso
@@ -232,42 +222,26 @@ podcast-multicam-editor/
 
 ## Comandos CLI Finales
 
-El usuario solo ejecuta:
+El usuario ejecuta:
 ```bash
+# Para procesamiento completo
 python main.py
+
+# Para modo preview
+python main.py --preview --preview-duration 5
 ```
-Y el sistema muestra un banner "CULTURAMA podcast editor" y lo guía paso a paso con una interfaz visual para seleccionar archivos, parámetros y procesar el video.
+
+El sistema muestra un banner "CULTURAMA podcast editor" y lo guía paso a paso con una interfaz visual para seleccionar archivos, parámetros y procesar el video.
 
 ## Consideraciones de Rendimiento
 
 1. **Procesamiento por chunks** para archivos grandes
-   - División automática del timeline en segmentos de 5 minutos
-   - Procesamiento independiente de cada chunk para optimizar memoria
-   - Concatenación eficiente con FFmpeg directo (sin recodificar)
-
-2. **Enfoque híbrido FFmpeg/MoviePy**
-   - MoviePy para la lógica de alto nivel (cortes, composición, transiciones)
-   - FFmpeg como backend para operaciones de bajo nivel y codificación final
-   - Optimización de comandos FFmpeg para máxima eficiencia
-
-3. **Multithreading** para operaciones paralelas
-   - Procesamiento paralelo de chunks cuando sea posible
-   - Configuración de threads para codificación de video
-
-4. **Modo Preview**
-   - Opción para renderizar solo los primeros 5 minutos
-   - Ideal para pruebas rápidas sin esperar el procesamiento completo
-   - Conserva todas las características del video final
-
-5. **Niveles de Calidad Configurables**
-   - Opciones de calidad baja, media y alta
-   - Presets de FFmpeg optimizados para cada nivel
-   - Balance entre velocidad de procesamiento y calidad final
-
-6. **Progress Tracking**
-   - Barras de progreso detalladas para cada fase del proceso
-   - Logs completos con timestamps para diagnóstico
-   - Estimación de tiempo restante durante el procesamiento
+2. **Multithreading** para operaciones paralelas
+3. **Uso directo de ffmpeg** para máxima eficiencia
+4. **Modo preview** para pruebas rápidas
+5. **Progress tracking** detallado para el usuario con Rich
+6. **Calidad ajustable** según necesidades de velocidad vs calidad
+7. **Normalización de audio** para calidad de sonido consistente
 
 ## Métricas de Éxito
 

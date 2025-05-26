@@ -17,16 +17,13 @@ from src.audio.synchronizer import (
     generate_final_sync_timeline
 )
 from src.detection.vad import detect_voice_activity, auto_threshold_vad
-from src.video.processor import VideoProcessor
-from src.video.composer import VideoComposer
-from src.utils.validation import validate_video_file
 
 console = Console()
 
 @click.command(name="process")
-@click.option("--preview", is_flag=True, help="Ejecutar en modo prueba (solo 5 minutos)")
-@click.option("--duration", type=int, default=300, help="Duración en segundos para el modo prueba")
-def process_command(preview, duration):
+@click.option("--preview", is_flag=True, help="Ejecutar en modo preview (procesa solo los primeros N minutos)")
+@click.option("--preview-duration", type=int, default=5, help="Duración en minutos para el modo preview")
+def process_command(preview, preview_duration):
     """Procesar videos y audios para generar video multicámara automático."""
     # Selección de archivos con InquirerPy
     files = select_input_files()
@@ -36,7 +33,7 @@ def process_command(preview, duration):
         return
     
     # Selección de parámetros
-    params = select_processing_parameters(preview, duration)
+    params = select_processing_parameters(preview, preview_duration)
     
     # Mostrar resumen
     show_summary(files, params)
@@ -67,6 +64,57 @@ def process_command(preview, duration):
         if not audio2_valid:
             console.print(f"[bold red]Error: El archivo de audio del Speaker 2 no es válido.[/]")
             return
+            
+        # Cortar archivos si estamos en modo preview (mover al inicio para procesar solo el fragmento)
+        if params["preview_mode"]:
+            from src.video.processor import cut_video_for_preview
+            
+            console.log(f"[cyan]Modo preview activado: procesando solo los primeros {params['preview_duration']} minutos[/]")
+            preview_task = progress.add_task("[green]Preparando archivos para preview...", total=4)
+            
+            # Cortar videos para preview
+            video1_preview = cut_video_for_preview(
+                files["video1"],
+                f"{os.path.splitext(files['video1'])[0]}_preview.mp4",
+                duration_minutes=params["preview_duration"],
+                log_progress=True
+            )
+            progress.update(preview_task, advance=1)
+            
+            video2_preview = cut_video_for_preview(
+                files["video2"],
+                f"{os.path.splitext(files['video2'])[0]}_preview.mp4",
+                duration_minutes=params["preview_duration"],
+                log_progress=True
+            )
+            progress.update(preview_task, advance=1)
+            
+            # Actualizar rutas de video
+            files["video1"] = video1_preview
+            files["video2"] = video2_preview
+            
+            # Cortar audios para preview
+            audio1_preview = cut_video_for_preview(
+                files["audio1"],
+                f"{os.path.splitext(files['audio1'])[0]}_preview.wav",
+                duration_minutes=params["preview_duration"],
+                log_progress=True
+            )
+            progress.update(preview_task, advance=1)
+            
+            audio2_preview = cut_video_for_preview(
+                files["audio2"],
+                f"{os.path.splitext(files['audio2'])[0]}_preview.wav",
+                duration_minutes=params["preview_duration"],
+                log_progress=True
+            )
+            progress.update(preview_task, advance=1)
+            
+            # Actualizar rutas de audio
+            files["audio1"] = audio1_preview
+            files["audio2"] = audio2_preview
+            
+            console.log(f"[cyan]Archivos preparados para preview de {params['preview_duration']} minutos[/]")
         
         # Fase 2: Extraer audio de videos si es necesario
         progress.update(main_task, advance=5, description="[cyan]Extrayendo audio de videos...")
@@ -245,14 +293,6 @@ def process_command(preview, duration):
                 progress=progress
             )
             progress.update(timeline1_task, completed=100)
-            
-            # Guardar timeline1 como JSON intermedio
-            import json
-            timeline1_json_path = os.path.join(params["output_dir"], "timeline1.json")
-            with open(timeline1_json_path, 'w') as f:
-                json.dump(timeline1_result, f)
-            console.print(f"[green]Timeline 1 guardado en: {timeline1_json_path}[/]")
-            
         except Exception as e:
             console.print(f"[bold red]Error al generar timeline para speaker 1: {str(e)}[/]")
             timeline1_result = None
@@ -270,14 +310,6 @@ def process_command(preview, duration):
                 progress=progress
             )
             progress.update(timeline2_task, completed=100)
-            
-            # Guardar timeline2 como JSON intermedio
-            import json
-            timeline2_json_path = os.path.join(params["output_dir"], "timeline2.json")
-            with open(timeline2_json_path, 'w') as f:
-                json.dump(timeline2_result, f)
-            console.print(f"[green]Timeline 2 guardado en: {timeline2_json_path}[/]")
-            
         except Exception as e:
             console.print(f"[bold red]Error al generar timeline para speaker 2: {str(e)}[/]")
             timeline2_result = None
@@ -301,13 +333,6 @@ def process_command(preview, duration):
                 progress=progress
             )
             progress.update(vad1_task, completed=100)
-            
-            # Guardar resultados de VAD1 como JSON intermedio
-            vad1_json_path = os.path.join(params["output_dir"], "vad1_result.json")
-            with open(vad1_json_path, 'w') as f:
-                json.dump(vad1_result, f)
-            console.print(f"[green]Resultados VAD 1 guardados en: {vad1_json_path}[/]")
-            
         except Exception as e:
             console.print(f"[bold red]Error en VAD para speaker 1: {str(e)}[/]")
             return
@@ -328,167 +353,295 @@ def process_command(preview, duration):
                 progress=progress
             )
             progress.update(vad2_task, completed=100)
-            
-            # Guardar resultados de VAD2 como JSON intermedio
-            vad2_json_path = os.path.join(params["output_dir"], "vad2_result.json")
-            with open(vad2_json_path, 'w') as f:
-                json.dump(vad2_result, f)
-            console.print(f"[green]Resultados VAD 2 guardados en: {vad2_json_path}[/]")
-            
         except Exception as e:
             console.print(f"[bold red]Error en VAD para speaker 2: {str(e)}[/]")
             return
         
-        # Fase 9: Generar video final
-        progress.update(main_task, advance=10, description="[cyan]Generando video final...")
+        # Fase 8: Procesar segmentos de speaker para generar cambios de cámara
+        progress.update(main_task, advance=10, description="[cyan]Procesando cambios de cámara...")
         
-        # Mapear timeline a formato esperado por VideoComposer
-        speaker_timeline = []
-        
-        # Combinar los segmentos de VAD con la información de timeline
-        for segment in vad1_result["segments"]:
-            # Los segmentos ya son de voz, no hace falta verificar is_speech
-            # Convertir tiempo de audio a tiempo de video usando el timeline
-            start_idx = min(int(segment["start"] / timeline1_result["sync_interval"]), len(timeline1_result["timeline"])-1)
-            end_idx = min(int(segment["end"] / timeline1_result["sync_interval"]), len(timeline1_result["timeline"])-1)
-            
-            video_start_raw = timeline1_result["timeline"][start_idx]
-            video_end_raw = timeline1_result["timeline"][end_idx]
-            
-            # Extraer el valor de tiempo target_time si es un diccionario
-            if isinstance(video_start_raw, dict) and 'target_time' in video_start_raw:
-                video_start = video_start_raw['target_time']
-            else:
-                video_start = video_start_raw
-                
-            if isinstance(video_end_raw, dict) and 'target_time' in video_end_raw:
-                video_end = video_end_raw['target_time']
-            else:
-                video_end = video_end_raw
-            
-            # Asegurarnos de que los valores sean numéricos
-            if isinstance(video_start, (int, float)) and isinstance(video_end, (int, float)):
-                speaker_timeline.append(("speaker1", video_start, video_end))
-            else:
-                console.print(f"[yellow]Advertencia: Valores no numéricos en timeline: {video_start_raw}, {video_end_raw}[/]")
-        
-        for segment in vad2_result["segments"]:
-            # Los segmentos ya son de voz, no hace falta verificar is_speech
-            # Convertir tiempo de audio a tiempo de video usando el timeline
-            start_idx = min(int(segment["start"] / timeline2_result["sync_interval"]), len(timeline2_result["timeline"])-1)
-            end_idx = min(int(segment["end"] / timeline2_result["sync_interval"]), len(timeline2_result["timeline"])-1)
-            
-            video_start_raw = timeline2_result["timeline"][start_idx]
-            video_end_raw = timeline2_result["timeline"][end_idx]
-            
-            # Extraer el valor de tiempo target_time si es un diccionario
-            if isinstance(video_start_raw, dict) and 'target_time' in video_start_raw:
-                video_start = video_start_raw['target_time']
-            else:
-                video_start = video_start_raw
-                
-            if isinstance(video_end_raw, dict) and 'target_time' in video_end_raw:
-                video_end = video_end_raw['target_time']
-            else:
-                video_end = video_end_raw
-            
-            # Asegurarnos de que los valores sean numéricos
-            if isinstance(video_start, (int, float)) and isinstance(video_end, (int, float)):
-                speaker_timeline.append(("speaker2", video_start, video_end))
-            else:
-                console.print(f"[yellow]Advertencia: Valores no numéricos en timeline: {video_start_raw}, {video_end_raw}[/]")
-        
-        # Verificar la estructura antes de ordenar
-        is_valid_structure = all(
-            isinstance(item, tuple) and len(item) == 3 and 
-            isinstance(item[0], str) and 
-            isinstance(item[1], (int, float)) and 
-            isinstance(item[2], (int, float))
-            for item in speaker_timeline
+        from src.video.processor import (
+            normalize_audio, 
+            mix_audio_tracks
         )
+        from src.video.composer import process_camera_changes
         
-        if not is_valid_structure:
-            console.print("[bold red]Error: El timeline generado no tiene la estructura esperada (speaker_id, start_time, end_time).[/]")
-            console.print("[yellow]Se guardarán los datos sin ordenar.[/]")
-            
-            # Guardar speaker_timeline intermedio para diagnóstico
-            raw_timeline_path = os.path.join(params["output_dir"], "raw_speaker_timeline_error.json")
-            with open(raw_timeline_path, 'w') as f:
-                json.dump(speaker_timeline, f, default=str)
-            console.print(f"[green]Timeline raw con error guardado en: {raw_timeline_path}[/]")
-            return
+        # Preparar audio maestro según la selección del usuario
+        audio_master_task = progress.add_task("[green]Preparando audio maestro...", total=100)
         
-        # Ordenar por tiempo de inicio
         try:
-            speaker_timeline.sort(key=lambda x: x[1])
-            console.print(f"[green]Timeline ordenado correctamente: {len(speaker_timeline)} segmentos[/]")
-        except Exception as e:
-            console.print(f"[bold red]Error al ordenar timeline: {str(e)}[/]")
-            console.print("[yellow]Se guardarán los datos sin ordenar.[/]")
+            # Crear audio maestro
+            import tempfile
+            temp_dir = tempfile.mkdtemp()
             
-            # Guardar speaker_timeline intermedio para diagnóstico
-            raw_timeline_path = os.path.join(params["output_dir"], "raw_speaker_timeline_error.json")
-            with open(raw_timeline_path, 'w') as f:
-                json.dump(speaker_timeline, f, default=str)
-            console.print(f"[green]Timeline raw con error guardado en: {raw_timeline_path}[/]")
+            if params["audio_mix"] == "speaker1":
+                # Usar audio del Speaker 1 normalizado
+                audio_master_path = os.path.join(temp_dir, "audio_master.wav")
+                console.log(f"[cyan]Normalizando audio del Speaker 1...[/]")
+                normalize_audio(
+                    files["audio1"],
+                    audio_master_path,
+                    target_level=-23.0,
+                    log_progress=True
+                )
+            elif params["audio_mix"] == "speaker2":
+                # Usar audio del Speaker 2 normalizado
+                audio_master_path = os.path.join(temp_dir, "audio_master.wav")
+                console.log(f"[cyan]Normalizando audio del Speaker 2...[/]")
+                normalize_audio(
+                    files["audio2"],
+                    audio_master_path,
+                    target_level=-23.0,
+                    log_progress=True
+                )
+            else:
+                # Mezclar ambos audios con los volúmenes seleccionados
+                audio_master_path = os.path.join(temp_dir, "audio_master.wav")
+                console.log(f"[cyan]Mezclando audios (Speaker 1: {params['speaker1_volume']}, Speaker 2: {params['speaker2_volume']})...[/]")
+                mix_audio_tracks(
+                    [files["audio1"], files["audio2"]],
+                    audio_master_path,
+                    volumes=[params["speaker1_volume"], params["speaker2_volume"]],
+                    normalize_output=True,
+                    log_progress=True
+                )
+            
+            # Verificar que el archivo se creó correctamente
+            if not os.path.exists(audio_master_path):
+                raise ValueError(f"El archivo de audio maestro no se generó correctamente: {audio_master_path}")
+            
+            file_size = os.path.getsize(audio_master_path)
+            console.log(f"[green]Audio maestro generado: {audio_master_path} ({file_size/1024/1024:.2f} MB)[/]")
+            
+            progress.update(audio_master_task, completed=100)
+        except Exception as e:
+            progress.update(audio_master_task, completed=0, description="[bold red]Error en audio maestro")
+            console.print(f"\n[bold red]Error al preparar audio maestro: {str(e)}[/]")
+            import traceback
+            console.print(f"[red]{traceback.format_exc()}[/]")
+            
+            # Información de diagnóstico específica para audio
+            console.print("\n[bold yellow]Información de diagnóstico de audio:[/]")
+            console.print(f"- Audio Speaker 1: {files['audio1']} (existe: {os.path.exists(files['audio1'])})")
+            console.print(f"- Audio Speaker 2: {files['audio2']} (existe: {os.path.exists(files['audio2'])})")
+            console.print(f"- Modo de mezcla: {params['audio_mix']}")
+            
+            if params['audio_mix'] == 'mix':
+                console.print(f"- Volumen Speaker 1: {params['speaker1_volume']}")
+                console.print(f"- Volumen Speaker 2: {params['speaker2_volume']}")
+            
+            console.print(f"- Directorio temporal: {temp_dir} (existe: {os.path.exists(temp_dir)})")
+            
+            # Comprobar permisos del directorio temporal
+            try:
+                test_file = os.path.join(temp_dir, "test.txt")
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                console.print(f"- Permisos de escritura en directorio temporal: Sí")
+                os.remove(test_file)
+            except Exception as perm_error:
+                console.print(f"- Permisos de escritura en directorio temporal: No ({str(perm_error)})")
+            
+            # Comprobar espacio disponible
+            try:
+                import shutil
+                total, used, free = shutil.disk_usage(temp_dir)
+                console.print(f"- Espacio disponible: {free/1024/1024/1024:.2f} GB")
+            except:
+                console.print("- No se pudo determinar el espacio disponible")
+            
+            # No continuar con el resto del código
             return
         
-        # Guardar speaker_timeline intermedio antes de procesar el video
-        raw_timeline_path = os.path.join(params["output_dir"], "raw_speaker_timeline.json")
-        with open(raw_timeline_path, 'w') as f:
-            json.dump(speaker_timeline, f)
-        console.print(f"[green]Timeline raw de speaker activo guardado en: {raw_timeline_path}[/]")
-        
-        # Crear video final
+        # Generar video final con cambios de cámara
         video_task = progress.add_task("[green]Generando video final...", total=100)
         
+        # Crear diccionario de videos por speaker
+        video_paths = {
+            "speaker1": files["video1"],
+            "speaker2": files["video2"]
+        }
+        
         try:
-            # Crear mapeo de speaker_id a rutas de archivos
-            video_paths = {
-                "speaker1": files["video1"],
-                "speaker2": files["video2"]
-            }
+            # Crear lista de segmentos
+            console.log("[cyan]Preparando segmentos para cambios de cámara...[/]")
+            all_segments = []
             
-            audio_paths = {
-                "speaker1": files["audio1"],
-                "speaker2": files["audio2"]
-            }
+            # Añadir segmentos del speaker 1
+            for segment in vad1_result["segments"]:
+                all_segments.append({
+                    "speaker_id": "speaker1",
+                    "start_time": segment["start"],
+                    "end_time": segment["end"]
+                })
             
-            # Si ambos audios tienen aproximadamente la misma duración, usar el del speaker1 como maestro
-            audio1_info = audio1_valid[1] if isinstance(audio1_valid, tuple) else None
-            audio2_info = audio2_valid[1] if isinstance(audio2_valid, tuple) else None
+            # Añadir segmentos del speaker 2
+            for segment in vad2_result["segments"]:
+                all_segments.append({
+                    "speaker_id": "speaker2",
+                    "start_time": segment["start"],
+                    "end_time": segment["end"]
+                })
             
-            master_audio = None
-            if audio1_info and audio2_info and abs(audio1_info.get("duration", 0) - audio2_info.get("duration", 0)) < 5:
-                master_audio = files["audio1"]
+            # Ordenar todos los segmentos por tiempo de inicio
+            all_segments.sort(key=lambda x: x["start_time"])
             
-            # Crear compositor de video
-            composer = VideoComposer(
+            # Verificar que los segmentos sean válidos
+            if not all_segments:
+                raise ValueError("No se generaron segmentos para los cambios de cámara")
+            
+            # Eliminar segmentos con duración no positiva
+            valid_segments = [seg for seg in all_segments if seg["end_time"] > seg["start_time"]]
+            
+            if len(valid_segments) != len(all_segments):
+                console.log(f"[yellow]Advertencia: Se eliminaron {len(all_segments) - len(valid_segments)} segmentos con duración no positiva[/]")
+                all_segments = valid_segments
+            
+            if not all_segments:
+                raise ValueError("Todos los segmentos tenían duración no positiva")
+            
+            # Mostrar estadísticas de segmentos
+            speaker1_count = sum(1 for seg in all_segments if seg["speaker_id"] == "speaker1")
+            speaker2_count = sum(1 for seg in all_segments if seg["speaker_id"] == "speaker2")
+            
+            console.log(f"[green]Segmentos preparados: {len(all_segments)} total (Speaker 1: {speaker1_count}, Speaker 2: {speaker2_count})[/]")
+            
+            # Verificar que los videos existan
+            for speaker_id, video_path in video_paths.items():
+                if not os.path.exists(video_path):
+                    raise ValueError(f"El video para {speaker_id} no existe: {video_path}")
+            
+            console.log(f"[green]Videos verificados: todos los archivos existen[/]")
+        
+        except Exception as e:
+            progress.update(video_task, completed=0, description="[bold red]Error en segmentos")
+            console.print(f"\n[bold red]Error al preparar segmentos: {str(e)}[/]")
+            import traceback
+            console.print(f"[red]{traceback.format_exc()}[/]")
+            
+            # Información de diagnóstico
+            console.print("\n[bold yellow]Información de diagnóstico de segmentos:[/]")
+            console.print(f"- VAD Speaker 1: {vad1_result['num_segments']} segmentos")
+            console.print(f"- VAD Speaker 2: {vad2_result['num_segments']} segmentos")
+            
+            if all_segments:
+                console.print(f"- Total segmentos combinados: {len(all_segments)}")
+                console.print(f"- Primer segmento: {all_segments[0]}")
+                console.print(f"- Último segmento: {all_segments[-1]}")
+            else:
+                console.print("- No hay segmentos combinados")
+            
+            # Salir del procesamiento
+            return
+        
+        try:
+            # Procesar cambios de cámara y generar video final
+            console.log("[cyan]Generando video final con cambios de cámara...[/]")
+            final_video_path = process_camera_changes(
+                speaker_segments=all_segments,
                 video_paths=video_paths,
-                audio_paths=audio_paths,
-                master_audio_path=master_audio,
-                output_dir=params["output_dir"],
+                audio_master_path=audio_master_path,
+                output_path=params["output_file"],
                 preview_mode=params["preview_mode"],
                 preview_duration=params["preview_duration"],
+                min_segment_duration=1.0,  # Mínimo 1 segundo por plano
+                transition_type=params["transition_type"],
                 output_quality=params["output_quality"],
-                transition_type=params["transition_type"]
-            )
-            
-            # Generar video
-            result_path = composer.generate_video(
-                speaker_timeline=speaker_timeline,
-                output_filename=params["output_filename"],
-                progress=progress
+                log_progress=True,
+                progress=progress,
+                task_id=video_task
             )
             
             progress.update(video_task, completed=100)
+            progress.update(main_task, completed=100, description="[bold green]¡Procesamiento completado!")
+            
+            # Mostrar resumen final
+            console.print("\n[bold green]¡Procesamiento completado exitosamente![/]")
+            console.print(f"Video final guardado en: [cyan]{final_video_path}[/]")
+            
+            # Si estamos en modo preview, recordar al usuario
+            if params["preview_mode"]:
+                console.print(f"[bold yellow]NOTA: Este es un preview de {params['preview_duration']} minutos.[/]")
+                console.print("Para procesar el video completo, ejecuta de nuevo sin la opción --preview.")
+            
+            # Mostrar resultados
+            console.print("\n[bold cyan]Resultados de sincronización inicial:[/]")
+            console.print(f"- Offset video 1: [green]{offset1_result['offset_seconds']:.3f} segundos[/] (confianza: {offset1_result['confidence_score']:.4f})")
+            console.print(f"- Offset video 2: [green]{offset2_result['offset_seconds']:.3f} segundos[/] (confianza: {offset2_result['confidence_score']:.4f})")
+            
+            # Mostrar información de drift
+            console.print("\n[bold cyan]Resultados de drift temporal:[/]")
+            if drift1_result:
+                console.print(f"- Drift video 1: [green]{drift1_result['drift_rate']:.6f} seg/seg[/] ({drift1_result['num_windows']} ventanas analizadas)")
+            else:
+                console.print("- Drift video 1: [yellow]No disponible[/]")
+                
+            if drift2_result:
+                console.print(f"- Drift video 2: [green]{drift2_result['drift_rate']:.6f} seg/seg[/] ({drift2_result['num_windows']} ventanas analizadas)")
+            else:
+                console.print("- Drift video 2: [yellow]No disponible[/]")
+            
+            # Mostrar información de sincronización fina
+            console.print("\n[bold cyan]Resultados de sincronización fina:[/]")
+            if window1_result:
+                console.print(f"- Video 1: [green]{window1_result['num_windows']} puntos de sincronización[/] (offset promedio: {window1_result['average_offset']:.3f}s)")
+            else:
+                console.print("- Video 1: [yellow]No disponible[/]")
+                
+            if window2_result:
+                console.print(f"- Video 2: [green]{window2_result['num_windows']} puntos de sincronización[/] (offset promedio: {window2_result['average_offset']:.3f}s)")
+            else:
+                console.print("- Video 2: [yellow]No disponible[/]")
+            
+            # Mostrar información de timeline final
+            console.print("\n[bold cyan]Resultados de timeline:[/]")
+            if timeline1_result:
+                console.print(f"- Timeline video 1: [green]{timeline1_result['num_points']} puntos[/] (intervalo: {timeline1_result['sync_interval']:.1f}s)")
+            else:
+                console.print("- Timeline video 1: [yellow]No disponible[/]")
+                
+            if timeline2_result:
+                console.print(f"- Timeline video 2: [green]{timeline2_result['num_points']} puntos[/] (intervalo: {timeline2_result['sync_interval']:.1f}s)")
+            else:
+                console.print("- Timeline video 2: [yellow]No disponible[/]")
+            
+            # Mostrar información de VAD
+            console.print("\n[bold cyan]Resultados de detección de voz:[/]")
+            console.print(f"- Speaker 1: [green]{vad1_result['num_segments']} segmentos[/] ({vad1_result['speech_percentage']:.1f}% de voz)")
+            console.print(f"- Speaker 2: [green]{vad2_result['num_segments']} segmentos[/] ({vad2_result['speech_percentage']:.1f}% de voz)")
+            
+            console.print(f"\nVideo final guardado en: [cyan]{final_video_path}[/]")
             
         except Exception as e:
-            console.print(f"[bold red]Error al generar video final: {str(e)}[/]")
+            progress.update(video_task, completed=0, description="[bold red]Error")
+            progress.update(main_task, completed=0, description="[bold red]Error en el procesamiento")
+            console.print(f"\n[bold red]Error al generar el video final: {str(e)}[/]")
+            import traceback
+            console.print(f"[red]{traceback.format_exc()}[/]")
+            
+            # Mostrar información adicional de diagnóstico
+            console.print("\n[bold yellow]Información de diagnóstico:[/]")
+            console.print(f"- Número total de segmentos: {len(all_segments)}")
+            if all_segments:
+                console.print(f"- Primer segmento: {all_segments[0]}")
+                console.print(f"- Último segmento: {all_segments[-1]}")
+            console.print(f"- Rutas de video: {video_paths}")
+            console.print(f"- Audio maestro: {audio_master_path}")
+            console.print(f"- Modo preview: {params['preview_mode']}")
+            console.print(f"- Duración preview: {params['preview_duration']} minutos")
+            console.print(f"- Transición: {params['transition_type']}")
+            console.print(f"- Calidad: {params['output_quality']}")
+            
+            # No continuar con el resto del código
             return
-        
-        # Completar barra principal
-        progress.update(main_task, completed=100, description="[green]Procesamiento completado")
+            
+        finally:
+            # Limpiar archivos temporales
+            try:
+                import shutil
+                shutil.rmtree(temp_dir)
+            except:
+                pass
     
     # Mostrar resultados
     console.print("\n[bold green]¡Procesamiento completado con éxito![/]")
@@ -539,769 +692,7 @@ def process_command(preview, duration):
     console.print(f"- Speaker 1: [green]{vad1_result['num_segments']} segmentos[/] ({vad1_result['speech_percentage']:.1f}% de voz)")
     console.print(f"- Speaker 2: [green]{vad2_result['num_segments']} segmentos[/] ({vad2_result['speech_percentage']:.1f}% de voz)")
     
-    console.print("\n[bold cyan]Resultados de generación de video:[/]")
-    console.print(f"- Timeline generado: [green]{len(speaker_timeline)} segmentos[/]")
-    console.print(f"- Modo: [green]{'Preview (5 min)' if params['preview_mode'] else 'Completo'}[/]")
-    console.print(f"- Calidad: [green]{params['output_quality']}[/]")
-    console.print(f"- Transiciones: [green]{params['transition_type']}[/]")
-    
-    console.print(f"\nVideo final guardado en: [cyan]{result_path}[/]")
-    console.print(f"Timeline guardado en: [cyan]{timeline1_json_path}[/]")
-    console.print(f"Timeline guardado en: [cyan]{timeline2_json_path}[/]")
-    
-    console.print("\n[bold green]¡Procesamiento completado con éxito![/]")
-
-@click.command(name="generate")
-@click.option("--speaker1-video", type=click.Path(exists=True), help="Ruta al video del speaker 1")
-@click.option("--speaker2-video", type=click.Path(exists=True), help="Ruta al video del speaker 2")
-@click.option("--speaker1-audio", type=click.Path(exists=True), help="Ruta al audio mono del speaker 1")
-@click.option("--speaker2-audio", type=click.Path(exists=True), help="Ruta al audio mono del speaker 2")
-@click.option("--master-audio", type=click.Path(exists=True), help="Ruta al audio maestro (opcional)")
-@click.option("--timeline", type=click.Path(exists=True), help="Ruta al archivo JSON de timeline de speaker activo")
-@click.option("--output", type=click.Path(), help="Ruta para guardar el video final")
-@click.option("--transition", type=click.Choice(["instantáneo", "suave", "muy suave"]), default="suave", help="Tipo de transición entre cámaras")
-@click.option("--quality", type=click.Choice(["low", "medium", "high"]), default="medium", help="Calidad del video final")
-@click.option("--preview", is_flag=True, help="Generar solo un preview de 5 minutos")
-@click.option("--preview-duration", type=int, default=300, help="Duración en segundos para el preview")
-def generate_command(speaker1_video, speaker2_video, speaker1_audio, speaker2_audio, 
-                     master_audio, timeline, output, transition, quality, preview, preview_duration):
-    """Generar video final a partir de los videos sincronizados y el timeline de speaker activo."""
-    import json
-    
-    console = Console()
-    
-    # Si no se especifican todos los parámetros, usar modo interactivo
-    if not all([speaker1_video, speaker2_video, speaker1_audio, speaker2_audio, timeline]):
-        console.print("[yellow]Algunos parámetros no fueron especificados. Iniciando modo interactivo...[/]")
-        
-        # Selección de archivos con InquirerPy
-        files = {}
-        
-        files["video1"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 1:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["video2"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 2:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["audio1"] = inquirer.filepath(
-            message="Seleccionar audio mono del Speaker 1:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["audio2"] = inquirer.filepath(
-            message="Seleccionar audio mono del Speaker 2:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["master_audio"] = inquirer.filepath(
-            message="Seleccionar audio maestro (opcional, Enter para omitir):",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result) if result else None,
-            default=None
-        ).execute()
-        
-        files["timeline"] = inquirer.filepath(
-            message="Seleccionar archivo JSON de timeline de speaker activo:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        # Asignar valores
-        speaker1_video = files["video1"]
-        speaker2_video = files["video2"]
-        speaker1_audio = files["audio1"]
-        speaker2_audio = files["audio2"]
-        master_audio = files["master_audio"]
-        timeline = files["timeline"]
-        
-        # Selección de parámetros
-        params = select_processing_parameters(preview, preview_duration)
-        
-        transition = params["transition_type"]
-        quality = params["output_quality"]
-        output = params["output_file"]
-    else:
-        # Usar valores de parámetros
-        if not output:
-            output = os.path.join(os.getcwd(), "output", "podcast_multicam.mp4")
-    
-    # Validar archivos
-    for file_path, file_desc in [
-        (speaker1_video, "Video Speaker 1"),
-        (speaker2_video, "Video Speaker 2"),
-        (speaker1_audio, "Audio Speaker 1"),
-        (speaker2_audio, "Audio Speaker 2"),
-        (timeline, "Timeline JSON")
-    ]:
-        is_valid, _ = validate_video_file(file_path) if "Video" in file_desc else (os.path.isfile(file_path), {})
-        if not is_valid:
-            console.print(f"[bold red]Error: El archivo {file_desc} no es válido o no existe.[/]")
-            return
-    
-    # Si existe audio maestro, validar
-    if master_audio:
-        is_valid, _ = validate_audio_file(master_audio)
-        if not is_valid:
-            console.print(f"[bold red]Error: El archivo de audio maestro no es válido.[/]")
-            return
-    
-    # Cargar timeline desde archivo JSON
-    try:
-        with open(timeline, 'r') as f:
-            speaker_timeline = json.load(f)
-    except Exception as e:
-        console.print(f"[bold red]Error al cargar el archivo de timeline: {str(e)}[/]")
-        return
-    
-    # Crear mapeo de speaker_id a rutas de archivos
-    video_paths = {
-        "speaker1": speaker1_video,
-        "speaker2": speaker2_video
-    }
-    
-    audio_paths = {
-        "speaker1": speaker1_audio,
-        "speaker2": speaker2_audio
-    }
-    
-    # Generar video final
-    with Progress() as progress:
-        main_task = progress.add_task("[cyan]Generando video final...", total=100)
-        
-        # Crear compositor de video
-        output_dir = os.path.dirname(output)
-        output_filename = os.path.basename(output)
-        
-        composer = VideoComposer(
-            video_paths=video_paths,
-            audio_paths=audio_paths,
-            master_audio_path=master_audio,
-            output_dir=output_dir,
-            preview_mode=preview,
-            preview_duration=preview_duration,
-            output_quality=quality,
-            transition_type=transition
-        )
-        
-        try:
-            # Generar video
-            result_path = composer.generate_video(
-                speaker_timeline=speaker_timeline,
-                output_filename=output_filename,
-                progress=progress
-            )
-            
-            progress.update(main_task, completed=100)
-            
-            # Mostrar resultado
-            console.print("\n[bold green]¡Video generado con éxito![/]")
-            console.print(f"Video guardado en: [cyan]{result_path}[/]")
-            
-        except Exception as e:
-            progress.update(main_task, completed=0, description="[red]Error en generación de video")
-            console.print(f"[bold red]Error al generar el video: {str(e)}[/]")
-            return
-
-@click.command(name="quick-test")
-@click.option("--speaker1-video", type=click.Path(exists=True), help="Ruta al video del speaker 1")
-@click.option("--speaker2-video", type=click.Path(exists=True), help="Ruta al video del speaker 2")
-@click.option("--output", type=click.Path(), help="Ruta para guardar el video de prueba")
-@click.option("--duration", type=int, default=30, help="Duración en segundos de cada segmento")
-def quick_test_command(speaker1_video, speaker2_video, output, duration):
-    """Ejecuta una prueba rápida y simple uniendo fragmentos de los videos."""
-    console = Console()
-    
-    # Si no se especifican todos los parámetros, usar modo interactivo
-    if not all([speaker1_video, speaker2_video]):
-        console.print("[yellow]Algunos parámetros no fueron especificados. Iniciando modo interactivo...[/]")
-        
-        # Selección de archivos con InquirerPy
-        files = {}
-        
-        files["video1"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 1:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["video2"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 2:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        # Asignar valores
-        speaker1_video = files["video1"]
-        speaker2_video = files["video2"]
-    
-    # Si no se especifica salida, usar valor por defecto
-    if not output:
-        output_dir = os.path.join(os.getcwd(), "output")
-        os.makedirs(output_dir, exist_ok=True)
-        output = os.path.join(output_dir, "quick_test.mp4")
-    
-    # Validar archivos
-    for file_path, file_desc in [
-        (speaker1_video, "Video Speaker 1"),
-        (speaker2_video, "Video Speaker 2")
-    ]:
-        is_valid, _ = validate_video_file(file_path)
-        if not is_valid:
-            console.print(f"[bold red]Error: El archivo {file_desc} no es válido o no existe.[/]")
-            return
-    
-    # Crear mapeo de speaker_id a rutas de archivos
-    video_paths = {
-        "speaker1": speaker1_video,
-        "speaker2": speaker2_video
-    }
-    
-    audio_paths = {}  # No necesitamos audios específicos para esta prueba
-    
-    # Ejecutar prueba rápida
-    with Progress() as progress:
-        main_task = progress.add_task("[cyan]Ejecutando prueba rápida...", total=100)
-        
-        # Crear procesador de video
-        processor = VideoProcessor(
-            video_paths=video_paths,
-            audio_paths=audio_paths,
-            output_quality="low"  # Usamos calidad baja para mayor velocidad
-        )
-        
-        try:
-            # Generar video de prueba
-            progress.update(main_task, advance=10, description="[cyan]Generando video de prueba...")
-            result_path = processor.quick_test(output, duration=duration)
-            
-            progress.update(main_task, completed=100)
-            
-            # Mostrar resultado
-            console.print("\n[bold green]¡Prueba rápida completada con éxito![/]")
-            console.print(f"Video guardado en: [cyan]{result_path}[/]")
-            
-        except Exception as e:
-            progress.update(main_task, completed=0, description="[red]Error en prueba rápida")
-            console.print(f"[bold red]Error al generar el video de prueba: {str(e)}[/]")
-            import traceback
-            console.print(f"[red]{traceback.format_exc()}[/]")
-            return
-
-@click.command(name="simple-test")
-@click.option("--speaker1-video", type=click.Path(exists=True), help="Ruta al video del speaker 1")
-@click.option("--speaker2-video", type=click.Path(exists=True), help="Ruta al video del speaker 2")
-@click.option("--timeline", type=click.Path(exists=True), help="Ruta al archivo JSON de timeline simple")
-@click.option("--output", type=click.Path(), help="Ruta para guardar el video de prueba")
-def simple_test_command(speaker1_video, speaker2_video, timeline, output):
-    """Ejecuta una prueba con un timeline sencillo para verificar el procesamiento básico."""
-    console = Console()
-    import json
-    
-    # Si no se especifican todos los parámetros, usar modo interactivo
-    if not all([speaker1_video, speaker2_video, timeline]):
-        console.print("[yellow]Algunos parámetros no fueron especificados. Iniciando modo interactivo...[/]")
-        
-        # Selección de archivos con InquirerPy
-        files = {}
-        
-        files["video1"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 1:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["video2"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 2:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["timeline"] = inquirer.filepath(
-            message="Seleccionar archivo JSON de timeline simple:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        # Asignar valores
-        speaker1_video = files["video1"]
-        speaker2_video = files["video2"]
-        timeline = files["timeline"]
-    
-    # Si no se especifica salida, usar valor por defecto
-    if not output:
-        output_dir = os.path.join(os.getcwd(), "output")
-        os.makedirs(output_dir, exist_ok=True)
-        output = os.path.join(output_dir, "simple_test.mp4")
-    
-    # Validar archivos
-    for file_path, file_desc in [
-        (speaker1_video, "Video Speaker 1"),
-        (speaker2_video, "Video Speaker 2"),
-        (timeline, "Timeline JSON")
-    ]:
-        is_valid, _ = validate_video_file(file_path) if "Video" in file_desc else (os.path.isfile(file_path), {})
-        if not is_valid:
-            console.print(f"[bold red]Error: El archivo {file_desc} no es válido o no existe.[/]")
-            return
-    
-    # Cargar timeline desde archivo JSON
-    try:
-        with open(timeline, 'r') as f:
-            speaker_timeline = json.load(f)
-        console.print(f"[green]Timeline cargado: {len(speaker_timeline)} segmentos[/]")
-    except Exception as e:
-        console.print(f"[bold red]Error al cargar el archivo de timeline: {str(e)}[/]")
-        return
-    
-    # Crear mapeo de speaker_id a rutas de archivos
-    video_paths = {
-        "speaker1": speaker1_video,
-        "speaker2": speaker2_video
-    }
-    
-    audio_paths = {}  # No necesitamos audios específicos para esta prueba
-    
-    # Ejecutar prueba simple
-    with Progress() as progress:
-        main_task = progress.add_task("[cyan]Ejecutando prueba simple...", total=100)
-        
-        # Crear procesador de video
-        processor = VideoProcessor(
-            video_paths=video_paths,
-            audio_paths=audio_paths,
-            output_quality="low",  # Usamos calidad baja para mayor velocidad
-            preview_duration=300   # Limitar a 5 minutos para prueba
-        )
-        
-        try:
-            # Cargar videos
-            progress.update(main_task, advance=10, description="[cyan]Cargando videos...")
-            processor.load_videos(progress=progress, task_id=main_task)
-            
-            # Procesar timeline
-            progress.update(main_task, advance=10, description="[cyan]Procesando timeline...")
-            result_path = processor.process_active_speaker_timeline(
-                speaker_timeline=speaker_timeline,
-                transition_type="cut",  # Usar cortes directos para simplicidad
-                min_segment_duration=2.0,
-                output_path=output,
-                progress=progress,
-                task_id=main_task
-            )
-            
-            progress.update(main_task, completed=100)
-            
-            # Mostrar resultado
-            console.print("\n[bold green]¡Prueba simple completada con éxito![/]")
-            console.print(f"Video guardado en: [cyan]{result_path}[/]")
-            
-        except Exception as e:
-            progress.update(main_task, completed=0, description="[red]Error en prueba simple")
-            console.print(f"[bold red]Error al generar el video de prueba: {str(e)}[/]")
-            import traceback
-            console.print(f"[red]{traceback.format_exc()}[/]")
-            return
-
-@click.command(name="ultra-simple-test")
-@click.option("--speaker1-video", type=click.Path(exists=True), help="Ruta al video del speaker 1")
-@click.option("--speaker2-video", type=click.Path(exists=True), help="Ruta al video del speaker 2")
-@click.option("--timeline", type=click.Path(exists=True), help="Ruta al archivo JSON de timeline ultra simple")
-@click.option("--output", type=click.Path(), help="Ruta para guardar el video de prueba")
-@click.option("--transition", type=click.Choice(["cut", "crossfade", "fade"]), default="cut", 
-              help="Tipo de transición entre clips")
-def ultra_simple_test_command(speaker1_video, speaker2_video, timeline, output, transition):
-    """Ejecuta una prueba ultra simplificada que concatena segmentos directamente sin efectos."""
-    console = Console()
-    import json
-    
-    # Si no se especifican todos los parámetros, usar modo interactivo
-    if not all([speaker1_video, speaker2_video, timeline]):
-        console.print("[yellow]Algunos parámetros no fueron especificados. Iniciando modo interactivo...[/]")
-        
-        # Selección de archivos con InquirerPy
-        files = {}
-        
-        files["video1"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 1:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["video2"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 2:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["timeline"] = inquirer.filepath(
-            message="Seleccionar archivo JSON de timeline ultra simple:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        # Asignar valores
-        speaker1_video = files["video1"]
-        speaker2_video = files["video2"]
-        timeline = files["timeline"]
-        
-        # Seleccionar tipo de transición
-        transition = inquirer.select(
-            message="Seleccionar tipo de transición:",
-            choices=[
-                Choice(value="cut", name="Corte directo"),
-                Choice(value="crossfade", name="Crossfade"),
-                Choice(value="fade", name="Fade con negro")
-            ],
-            default="cut"
-        ).execute()
-    
-    # Si no se especifica salida, usar valor por defecto
-    if not output:
-        output_dir = os.path.join(os.getcwd(), "output")
-        os.makedirs(output_dir, exist_ok=True)
-        output = os.path.join(output_dir, f"ultra_simple_{transition}.mp4")
-    
-    # Validar archivos
-    for file_path, file_desc in [
-        (speaker1_video, "Video Speaker 1"),
-        (speaker2_video, "Video Speaker 2"),
-        (timeline, "Timeline JSON")
-    ]:
-        is_valid, _ = validate_video_file(file_path) if "Video" in file_desc else (os.path.isfile(file_path), {})
-        if not is_valid:
-            console.print(f"[bold red]Error: El archivo {file_desc} no es válido o no existe.[/]")
-            return
-    
-    # Cargar timeline desde archivo JSON
-    try:
-        with open(timeline, 'r') as f:
-            speaker_timeline = json.load(f)
-        console.print(f"[green]Timeline cargado: {len(speaker_timeline)} segmentos[/]")
-    except Exception as e:
-        console.print(f"[bold red]Error al cargar el archivo de timeline: {str(e)}[/]")
-        return
-    
-    # Crear mapeo de speaker_id a rutas de archivos
-    video_paths = {
-        "speaker1": speaker1_video,
-        "speaker2": speaker2_video
-    }
-    
-    audio_paths = {}  # No necesitamos audios específicos para esta prueba
-    
-    # Ejecutar prueba ultra simple
-    with Progress() as progress:
-        main_task = progress.add_task("[cyan]Ejecutando prueba ultra simple...", total=100)
-        
-        # Crear procesador de video
-        processor = VideoProcessor(
-            video_paths=video_paths,
-            audio_paths=audio_paths,
-            output_quality="low"  # Usamos calidad baja para mayor velocidad
-        )
-        
-        try:
-            # Actualizar progreso
-            progress.update(main_task, advance=10, description=f"[cyan]Procesando timeline con transición '{transition}'...")
-            
-            # Ejecutar prueba ultra simple
-            result_path = processor.ultra_simple_test(
-                timeline=speaker_timeline,
-                output_path=output,
-                transition_type=transition
-            )
-            
-            progress.update(main_task, completed=100)
-            
-            # Mostrar resultado
-            if result_path:
-                console.print("\n[bold green]¡Prueba ultra simple completada con éxito![/]")
-                console.print(f"Video guardado en: [cyan]{result_path}[/]")
-            else:
-                console.print("\n[bold red]La prueba ultra simple no generó un video.[/]")
-            
-        except Exception as e:
-            progress.update(main_task, completed=0, description="[red]Error en prueba ultra simple")
-            console.print(f"[bold red]Error al generar el video de prueba: {str(e)}[/]")
-            import traceback
-            console.print(f"[red]{traceback.format_exc()}[/]")
-            return
-
-@click.command(name="resume")
-@click.option("--speaker1-video", type=click.Path(exists=True), help="Ruta al video del speaker 1")
-@click.option("--speaker2-video", type=click.Path(exists=True), help="Ruta al video del speaker 2")
-@click.option("--speaker-timeline", type=click.Path(exists=True), help="Ruta al archivo JSON de timeline generado")
-@click.option("--output", type=click.Path(), help="Ruta para guardar el video final")
-@click.option("--transition", type=click.Choice(["instantáneo", "suave", "muy suave"]), default="suave", help="Tipo de transición entre cámaras")
-@click.option("--quality", type=click.Choice(["low", "medium", "high"]), default="medium", help="Calidad del video final")
-@click.option("--preview", is_flag=True, help="Generar solo un preview de 5 minutos")
-@click.option("--preview-duration", type=int, default=300, help="Duración en segundos para el preview")
-def resume_command(speaker1_video, speaker2_video, speaker_timeline, output, transition, quality, preview, preview_duration):
-    """Continuar el proceso desde un timeline guardado sin realizar todo el análisis de nuevo."""
-    import json
-    
-    console = Console()
-    
-    # Si no se especifican todos los parámetros, usar modo interactivo
-    if not all([speaker1_video, speaker2_video, speaker_timeline]):
-        console.print("[yellow]Algunos parámetros no fueron especificados. Iniciando modo interactivo...[/]")
-        
-        # Selección de archivos con InquirerPy
-        files = {}
-        
-        files["video1"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 1:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["video2"] = inquirer.filepath(
-            message="Seleccionar video del Speaker 2:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        files["timeline"] = inquirer.filepath(
-            message="Seleccionar archivo JSON de timeline guardado:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-        
-        # Asignar valores
-        speaker1_video = files["video1"]
-        speaker2_video = files["video2"]
-        speaker_timeline = files["timeline"]
-        
-        # Selección de parámetros
-        params = select_processing_parameters(preview, preview_duration)
-        
-        transition = params["transition_type"]
-        quality = params["output_quality"]
-        output = params["output_file"]
-    else:
-        # Usar valores de parámetros
-        if not output:
-            output_dir = os.path.join(os.getcwd(), "output")
-            os.makedirs(output_dir, exist_ok=True)
-            output = os.path.join(output_dir, "podcast_multicam.mp4")
-    
-    # Validar archivos
-    for file_path, file_desc in [
-        (speaker1_video, "Video Speaker 1"),
-        (speaker2_video, "Video Speaker 2"),
-        (speaker_timeline, "Timeline JSON")
-    ]:
-        is_valid, _ = validate_video_file(file_path) if "Video" in file_desc else (os.path.isfile(file_path), {})
-        if not is_valid:
-            console.print(f"[bold red]Error: El archivo {file_desc} no es válido o no existe.[/]")
-            return
-    
-    # Cargar timeline desde archivo JSON
-    try:
-        with open(speaker_timeline, 'r') as f:
-            timeline_data = json.load(f)
-        
-        # Verificar si el timeline es un formato raw o procesado
-        if isinstance(timeline_data, list):
-            # Es un timeline procesado en formato [(speaker_id, start, end), ...]
-            speaker_timeline_data = timeline_data
-        else:
-            console.print("[bold yellow]El formato del timeline no es el esperado. Debe ser una lista de tuplas (speaker_id, start_time, end_time).[/]")
-            return
-            
-        console.print(f"[green]Timeline cargado: {len(speaker_timeline_data)} segmentos[/]")
-    except Exception as e:
-        console.print(f"[bold red]Error al cargar el archivo de timeline: {str(e)}[/]")
-        return
-    
-    # Crear mapeo de speaker_id a rutas de archivos
-    video_paths = {
-        "speaker1": speaker1_video,
-        "speaker2": speaker2_video
-    }
-    
-    # Generar video final
-    with Progress() as progress:
-        main_task = progress.add_task("[cyan]Generando video final...", total=100)
-        
-        # Crear compositor de video
-        output_dir = os.path.dirname(output)
-        output_filename = os.path.basename(output)
-        
-        composer = VideoComposer(
-            video_paths=video_paths,
-            audio_paths={},  # No necesitamos audio separado para este comando
-            master_audio_path=None,
-            output_dir=output_dir,
-            preview_mode=preview,
-            preview_duration=preview_duration,
-            output_quality=quality,
-            transition_type=transition
-        )
-        
-        try:
-            # Generar video
-            result_path = composer.generate_video(
-                speaker_timeline=speaker_timeline_data,
-                output_filename=output_filename,
-                progress=progress
-            )
-            
-            progress.update(main_task, completed=100)
-            
-            # Mostrar resultado
-            console.print("\n[bold green]¡Video generado con éxito desde timeline guardado![/]")
-            console.print(f"Video guardado en: [cyan]{result_path}[/]")
-            
-        except Exception as e:
-            progress.update(main_task, completed=0, description="[red]Error en generación de video")
-            console.print(f"[bold red]Error al generar el video: {str(e)}[/]")
-            return
-
-@click.command(name="inspect-timeline")
-@click.option("--timeline", type=click.Path(exists=True), help="Ruta al archivo JSON de timeline a inspeccionar")
-def inspect_timeline_command(timeline):
-    """Inspecciona y valida un archivo de timeline para diagnóstico."""
-    import json
-    import pprint
-    
-    console = Console()
-    
-    # Si no se especifica timeline, usar modo interactivo
-    if not timeline:
-        timeline = inquirer.filepath(
-            message="Seleccionar archivo JSON de timeline para inspeccionar:",
-            validate=PathValidator(is_file=True, message="Debe ser un archivo existente"),
-            filter=lambda result: os.path.abspath(result)
-        ).execute()
-    
-    try:
-        # Cargar timeline
-        with open(timeline, 'r') as f:
-            timeline_data = json.load(f)
-        
-        # Analizar tipo de datos
-        console.print(f"[cyan]Archivo cargado: [bold]{timeline}[/][/]")
-        console.print(f"[cyan]Tipo de datos: [bold]{type(timeline_data).__name__}[/][/]")
-        
-        if isinstance(timeline_data, list):
-            console.print(f"[cyan]Número de elementos: [bold]{len(timeline_data)}[/][/]")
-            
-            # Muestra los primeros elementos
-            console.print("\n[cyan]Primeros 5 elementos:[/]")
-            for i, item in enumerate(timeline_data[:5]):
-                console.print(f"[green]Elemento {i}: {type(item).__name__}[/]")
-                if isinstance(item, (list, tuple)):
-                    formatted = pprint.pformat(item)
-                    console.print(f"  [white]{formatted}[/]")
-                else:
-                    console.print(f"  [white]{item}[/]")
-            
-            # Verifica la estructura si parece un timeline de speaker
-            if len(timeline_data) > 0 and isinstance(timeline_data[0], (list, tuple)) and len(timeline_data[0]) == 3:
-                # Verifica que la estructura sea consistente
-                has_correct_structure = all(
-                    isinstance(item, (list, tuple)) and len(item) == 3 and
-                    isinstance(item[0], str) and
-                    isinstance(item[1], (int, float)) and
-                    isinstance(item[2], (int, float))
-                    for item in timeline_data
-                )
-                
-                if has_correct_structure:
-                    console.print("\n[bold green]✓ El timeline tiene la estructura correcta (speaker_id, start_time, end_time)[/]")
-                    
-                    # Estadísticas sobre el timeline
-                    durations = [(item[2] - item[1]) for item in timeline_data]
-                    avg_duration = sum(durations) / len(durations) if durations else 0
-                    total_duration = timeline_data[-1][2] if timeline_data else 0
-                    
-                    console.print(f"\n[cyan]Estadísticas del timeline:[/]")
-                    console.print(f"- Duración total: [green]{total_duration:.2f} segundos[/]")
-                    console.print(f"- Duración promedio de segmentos: [green]{avg_duration:.2f} segundos[/]")
-                    console.print(f"- Segmento más corto: [green]{min(durations):.2f} segundos[/]")
-                    console.print(f"- Segmento más largo: [green]{max(durations):.2f} segundos[/]")
-                    
-                    # Conteo por speaker
-                    speaker_counts = {}
-                    for item in timeline_data:
-                        speaker_id = item[0]
-                        speaker_counts[speaker_id] = speaker_counts.get(speaker_id, 0) + 1
-                    
-                    console.print("\n[cyan]Distribución por speaker:[/]")
-                    for speaker_id, count in speaker_counts.items():
-                        percentage = (count / len(timeline_data)) * 100
-                        console.print(f"- {speaker_id}: [green]{count} segmentos[/] ({percentage:.1f}%)")
-                else:
-                    console.print("\n[bold red]✗ El timeline no tiene la estructura esperada[/]")
-                    
-                    # Identificar elementos problemáticos
-                    for i, item in enumerate(timeline_data):
-                        if not (isinstance(item, (list, tuple)) and len(item) == 3):
-                            console.print(f"  Elemento {i}: formato incorrecto - {type(item).__name__}, longitud: {len(item) if hasattr(item, '__len__') else 'N/A'}")
-                        elif not isinstance(item[0], str):
-                            console.print(f"  Elemento {i}: speaker_id no es string - {type(item[0]).__name__}")
-                        elif not isinstance(item[1], (int, float)):
-                            console.print(f"  Elemento {i}: start_time no es numérico - {type(item[1]).__name__}")
-                        elif not isinstance(item[2], (int, float)):
-                            console.print(f"  Elemento {i}: end_time no es numérico - {type(item[2]).__name__}")
-            else:
-                console.print("\n[yellow]No parece ser un timeline de speaker activo[/]")
-        elif isinstance(timeline_data, dict):
-            # Probablemente sea un resultado de otro proceso
-            console.print(f"[cyan]Estructura de diccionario con [bold]{len(timeline_data)}[/] claves[/]")
-            console.print("\n[cyan]Claves presentes:[/]")
-            for key in timeline_data.keys():
-                value = timeline_data[key]
-                value_type = type(value).__name__
-                if isinstance(value, list):
-                    console.print(f"- [green]{key}[/]: lista con {len(value)} elementos")
-                else:
-                    console.print(f"- [green]{key}[/]: {value_type}")
-                    
-            # Si es un resultado de VAD, mostrar info específica
-            if "segments" in timeline_data and "speech_percentage" in timeline_data:
-                console.print("\n[cyan]Parece ser un resultado de detección de voz (VAD)[/]")
-                console.print(f"- Archivo: [green]{timeline_data.get('file', 'No especificado')}[/]")
-                console.print(f"- Duración total: [green]{timeline_data.get('total_duration', 0):.2f} segundos[/]")
-                console.print(f"- Porcentaje de voz: [green]{timeline_data.get('speech_percentage', 0):.1f}%[/]")
-                console.print(f"- Número de segmentos: [green]{timeline_data.get('num_segments', 0)}[/]")
-                
-                # Mostrar primeros segmentos
-                segments = timeline_data.get("segments", [])
-                console.print("\n[cyan]Primeros 5 segmentos de voz:[/]")
-                for i, segment in enumerate(segments[:5]):
-                    start = segment.get("start", 0)
-                    end = segment.get("end", 0)
-                    duration = segment.get("duration", end - start)
-                    console.print(f"- Segmento {i}: [green]{start:.2f}s - {end:.2f}s[/] (duración: {duration:.2f}s)")
-            
-            # Si es un resultado de timeline de sincronización
-            elif "timeline" in timeline_data and "sync_interval" in timeline_data:
-                console.print("\n[cyan]Parece ser un timeline de sincronización[/]")
-                console.print(f"- Intervalo de sincronización: [green]{timeline_data.get('sync_interval', 0):.2f} segundos[/]")
-                console.print(f"- Número de puntos: [green]{timeline_data.get('num_points', 0)}[/]")
-                
-                # Mostrar primeros puntos del timeline
-                timeline_points = timeline_data.get("timeline", [])
-                console.print("\n[cyan]Primeros 10 puntos del timeline:[/]")
-                for i, point in enumerate(timeline_points[:10]):
-                    console.print(f"- Punto {i} ({i * timeline_data.get('sync_interval', 0):.2f}s): [green]{point}[/]")
-        else:
-            console.print(f"\n[bold red]Formato de archivo no reconocido: {type(timeline_data).__name__}[/]")
-        
-    except Exception as e:
-        console.print(f"[bold red]Error al inspeccionar timeline: {str(e)}[/]")
-        import traceback
-        console.print(f"[red]{traceback.format_exc()}[/]")
+    console.print(f"\nVideo final guardado en: [cyan]{params['output_file']}[/]")
 
 def select_input_files():
     """Permite al usuario seleccionar los archivos de entrada usando InquirerPy."""
@@ -1341,68 +732,101 @@ def select_input_files():
     
     return files
 
-def select_processing_parameters(test=False, duration=300):
-    """Seleccionar parámetros de procesamiento."""
+def select_processing_parameters(preview_mode, preview_duration):
+    """Permite al usuario seleccionar los parámetros de procesamiento."""
     params = {}
+    
+    # Modo preview
+    params["preview_mode"] = preview_mode or inquirer.confirm(
+        message="¿Ejecutar en modo preview? (solo procesará los primeros minutos)",
+        default=False
+    ).execute()
+    
+    # Duración de preview
+    if params["preview_mode"] and not preview_mode:
+        params["preview_duration"] = inquirer.number(
+            message="Duración del preview (minutos):",
+            min_allowed=1,
+            max_allowed=30,
+            default=preview_duration,
+            transformer=try_convert_to_int
+        ).execute()
+    else:
+        params["preview_duration"] = preview_duration
     
     # Tipo de transición
     params["transition_type"] = inquirer.select(
-        message="Seleccionar tipo de transición entre cámaras:",
+        message="Selecciona el tipo de transición entre cámaras:",
         choices=[
-            Choice(value="instantáneo", name="Instantáneo (corte directo)"),
-            Choice(value="suave", name="Suave (crossfade 0.5s)"),
-            Choice(value="muy suave", name="Muy suave (fade 1s)")
+            Choice(value="cut", name="Corte directo (instantáneo)"),
+            Choice(value="dissolve", name="Fundido suave (0.5 segundos)"),
+            Choice(value="fade", name="Fundido lento (1 segundo)")
         ],
-        default="suave"
-    ).execute()
-    
-    # Duración mínima de segmento
-    params["min_segment_duration"] = inquirer.number(
-        message="Duración mínima de cada segmento de cámara (segundos):",
-        min_allowed=1.0,
-        max_allowed=10.0,
-        default=2.0,
-        float_allowed=True
+        default="cut"
     ).execute()
     
     # Calidad de salida
     params["output_quality"] = inquirer.select(
-        message="Calidad del video final:",
+        message="Selecciona la calidad del video final:",
         choices=[
-            Choice(value="low", name="Baja (más rápido)"),
-            Choice(value="medium", name="Media (equilibrado)"),
-            Choice(value="high", name="Alta (más lento)")
+            Choice(value="high", name="Alta (1080p, mejor calidad)"),
+            Choice(value="medium", name="Media (720p, calidad estándar)"),
+            Choice(value="low", name="Baja (480p, procesamiento más rápido)")
         ],
-        default="medium"
+        default="high"
     ).execute()
     
-    # Directorio de salida
-    default_output_dir = os.path.join(os.getcwd(), "output")
-    os.makedirs(default_output_dir, exist_ok=True)
-    
-    params["output_dir"] = inquirer.text(
-        message="Directorio para guardar el video final:",
-        default=default_output_dir,
-        validate=PathValidator(is_dir=True, message="El directorio debe existir o ser creado"),
-        filter=lambda result: os.path.abspath(result)
+    # Mezcla de audio
+    params["audio_mix"] = inquirer.select(
+        message="Selecciona el tipo de audio para el video final:",
+        choices=[
+            Choice(value="speaker1", name="Usar audio del Speaker 1"),
+            Choice(value="speaker2", name="Usar audio del Speaker 2"),
+            Choice(value="mix", name="Mezclar ambos audios (normalizado)")
+        ],
+        default="mix"
     ).execute()
     
-    # Crear directorio si no existe
-    if not os.path.exists(params["output_dir"]):
-        os.makedirs(params["output_dir"])
+    # Si se eligió mezclar, preguntar por volúmenes
+    if params["audio_mix"] == "mix":
+        params["speaker1_volume"] = inquirer.number(
+            message="Volumen para Speaker 1 (0.0-2.0):",
+            min_allowed=0.0,
+            max_allowed=2.0,
+            default=1.0,
+            float_allowed=True
+        ).execute()
+        
+        params["speaker2_volume"] = inquirer.number(
+            message="Volumen para Speaker 2 (0.0-2.0):",
+            min_allowed=0.0,
+            max_allowed=2.0,
+            default=1.0,
+            float_allowed=True
+        ).execute()
     
-    # Nombre del archivo de salida
-    params["output_filename"] = inquirer.text(
-        message="Nombre del archivo de salida:",
-        default="podcast_multicam.mp4"
+    # Archivo de salida
+    output_dir = inquirer.filepath(
+        message="Selecciona la ubicación del video final:",
+        only_directories=True,
+        default=".",
+        transformer=lambda result: os.path.abspath(result)
     ).execute()
     
-    # Ruta completa del archivo de salida
-    params["output_file"] = os.path.join(params["output_dir"], params["output_filename"])
+    output_filename = "podcast_final.mp4"
+    params["output_file"] = os.path.join(output_dir, output_filename)
     
-    # Modo preview
-    params["preview_mode"] = test
-    params["preview_duration"] = duration if test else None
+    # Añadir subtítulos
+    params["add_subtitles"] = inquirer.confirm(
+        message="¿Añadir subtítulos automáticos al video?",
+        default=True
+    ).execute()
+    
+    # Exportar transcripción
+    params["export_transcript"] = inquirer.confirm(
+        message="¿Exportar transcripción completa?",
+        default=True
+    ).execute()
     
     return params
 
@@ -1428,25 +852,37 @@ def show_summary(files, params):
     console.print("\n[bold]Parámetros de procesamiento:[/]")
     
     if params["preview_mode"]:
-        console.print(f"- Modo de prueba: [yellow]Activado[/] ({params['preview_duration']} segundos)")
+        console.print(f"- Modo preview: [yellow]Activado[/] (primeros {params['preview_duration']} minutos)")
     else:
-        console.print("- Modo de prueba: [green]Desactivado[/] (procesamiento completo)")
+        console.print("- Modo preview: [green]Desactivado[/] (procesamiento completo)")
     
     # Tipo de transición
     transition_names = {
-        "instantáneo": "Instantáneo (corte directo)",
-        "suave": "Suave (crossfade 0.5s)",
-        "muy suave": "Muy suave (fade 1s)"
+        "cut": "Corte directo (instantáneo)",
+        "dissolve": "Fundido suave (0.5 segundos)",
+        "fade": "Fundido lento (1 segundo)"
     }
     console.print(f"- Transición: [green]{transition_names[params['transition_type']]}[/]")
     
     # Calidad de salida
     quality_names = {
-        "low": "Baja (más rápido)",
-        "medium": "Media (equilibrado)",
-        "high": "Alta (más lento)"
+        "high": "Alta (1080p, mejor calidad)",
+        "medium": "Media (720p, calidad estándar)",
+        "low": "Baja (480p, procesamiento más rápido)"
     }
     console.print(f"- Calidad: [green]{quality_names[params['output_quality']]}[/]")
+    
+    # Audio
+    if params["audio_mix"] == "speaker1":
+        console.print("- Audio: [green]Speaker 1[/]")
+    elif params["audio_mix"] == "speaker2":
+        console.print("- Audio: [green]Speaker 2[/]")
+    else:
+        console.print(f"- Audio: [green]Mezcla (Speaker 1: {params['speaker1_volume']}, Speaker 2: {params['speaker2_volume']})[/]")
+    
+    # Subtítulos y transcripción
+    console.print(f"- Subtítulos: [green]{'Activados' if params['add_subtitles'] else 'Desactivados'}[/]")
+    console.print(f"- Transcripción: [green]{'Activada' if params['export_transcript'] else 'Desactivada'}[/]")
     
     # Archivo de salida
     console.print(f"\n- Archivo de salida: [cyan]{params['output_file']}[/]")
