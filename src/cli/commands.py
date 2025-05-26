@@ -8,7 +8,14 @@ from InquirerPy.base.control import Choice
 
 from src.audio.analyzer import validate_audio_file, analyze_audio_file
 from src.audio.extractor import extract_audio_from_video
-from src.audio.synchronizer import find_offset_between_audios, create_audio_fingerprint
+from src.audio.synchronizer import (
+    find_offset_between_audios, 
+    create_audio_fingerprint, 
+    calculate_drift, 
+    sync_audio_with_windows,
+    correct_offset_puntuales,
+    generate_final_sync_timeline
+)
 from src.detection.vad import detect_voice_activity, auto_threshold_vad
 
 console = Console()
@@ -80,7 +87,7 @@ def process_command(test, duration):
         )
         
         # Fase 3: Crear fingerprints de audio
-        progress.update(main_task, advance=10, description="[cyan]Creando fingerprints de audio...")
+        progress.update(main_task, advance=5, description="[cyan]Creando fingerprints de audio...")
         
         # Fingerprint para audio speaker 1
         fingerprint1_task = progress.add_task("[green]Creando fingerprint audio 1...", total=100)
@@ -107,7 +114,7 @@ def process_command(test, duration):
             return
         
         # Fase 4: Encontrar offset entre audios y videos
-        progress.update(main_task, advance=15, description="[cyan]Calculando sincronización...")
+        progress.update(main_task, advance=10, description="[cyan]Calculando sincronización inicial...")
         
         # Offset entre audio y video del speaker 1
         offset1_task = progress.add_task("[green]Calculando offset video 1...", total=100)
@@ -135,8 +142,129 @@ def process_command(test, duration):
             console.print(f"[bold red]Error al calcular offset para speaker 2: {str(e)}[/]")
             return
         
-        # Fase 5: Detección de actividad vocal (VAD)
-        progress.update(main_task, advance=15, description="[cyan]Detectando actividad vocal...")
+        # Fase 5: Detectar y corregir drift temporal
+        progress.update(main_task, advance=10, description="[cyan]Analizando drift temporal...")
+        
+        # Drift para speaker 1
+        drift1_task = progress.add_task("[green]Calculando drift video 1...", total=100)
+        try:
+            drift1_result = calculate_drift(
+                files["audio1"],
+                video1_audio,
+                offset1_result["offset_seconds"],
+                window_size_seconds=30.0,
+                step_size_seconds=15.0,
+                progress=progress
+            )
+            progress.update(drift1_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error al calcular drift para speaker 1: {str(e)}[/]")
+            drift1_result = None
+        
+        # Drift para speaker 2
+        drift2_task = progress.add_task("[green]Calculando drift video 2...", total=100)
+        try:
+            drift2_result = calculate_drift(
+                files["audio2"],
+                video2_audio,
+                offset2_result["offset_seconds"],
+                window_size_seconds=30.0,
+                step_size_seconds=15.0,
+                progress=progress
+            )
+            progress.update(drift2_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error al calcular drift para speaker 2: {str(e)}[/]")
+            drift2_result = None
+        
+        # Fase 6: Sincronización con ventanas deslizantes
+        progress.update(main_task, advance=10, description="[cyan]Realizando sincronización fina...")
+        
+        # Ventanas para speaker 1
+        window1_task = progress.add_task("[green]Sincronización fina video 1...", total=100)
+        try:
+            window1_result = sync_audio_with_windows(
+                files["audio1"],
+                video1_audio,
+                window_size_seconds=20.0,
+                overlap_seconds=5.0,
+                max_offset_seconds=2.0,
+                progress=progress
+            )
+            
+            # Corregir desfases puntuales
+            window1_result["sync_map"] = correct_offset_puntuales(
+                window1_result["sync_map"],
+                smoothing_window=5
+            )
+            
+            progress.update(window1_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error en sincronización fina para speaker 1: {str(e)}[/]")
+            window1_result = None
+        
+        # Ventanas para speaker 2
+        window2_task = progress.add_task("[green]Sincronización fina video 2...", total=100)
+        try:
+            window2_result = sync_audio_with_windows(
+                files["audio2"],
+                video2_audio,
+                window_size_seconds=20.0,
+                overlap_seconds=5.0,
+                max_offset_seconds=2.0,
+                progress=progress
+            )
+            
+            # Corregir desfases puntuales
+            window2_result["sync_map"] = correct_offset_puntuales(
+                window2_result["sync_map"],
+                smoothing_window=5
+            )
+            
+            progress.update(window2_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error en sincronización fina para speaker 2: {str(e)}[/]")
+            window2_result = None
+        
+        # Fase 7: Generar timeline final sincronizado
+        progress.update(main_task, advance=5, description="[cyan]Generando timeline sincronizado...")
+        
+        # Timeline para speaker 1
+        timeline1_task = progress.add_task("[green]Generando timeline video 1...", total=100)
+        try:
+            timeline1_result = generate_final_sync_timeline(
+                files["audio1"],
+                video1_audio,
+                offset1_result,
+                drift1_result,
+                window1_result,
+                sync_interval=0.5,  # Un punto cada 0.5 segundos
+                progress=progress
+            )
+            progress.update(timeline1_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error al generar timeline para speaker 1: {str(e)}[/]")
+            timeline1_result = None
+        
+        # Timeline para speaker 2
+        timeline2_task = progress.add_task("[green]Generando timeline video 2...", total=100)
+        try:
+            timeline2_result = generate_final_sync_timeline(
+                files["audio2"],
+                video2_audio,
+                offset2_result,
+                drift2_result,
+                window2_result,
+                sync_interval=0.5,  # Un punto cada 0.5 segundos
+                progress=progress
+            )
+            progress.update(timeline2_task, completed=100)
+        except Exception as e:
+            console.print(f"[bold red]Error al generar timeline para speaker 2: {str(e)}[/]")
+            timeline2_result = None
+        
+        # Fase 8: Detección de actividad vocal (VAD)
+        progress.update(main_task, advance=10, description="[cyan]Detectando actividad vocal...")
         
         # VAD para speaker 1
         vad1_task = progress.add_task("[green]Detectando voz speaker 1...", total=100)
@@ -185,9 +313,45 @@ def process_command(test, duration):
     console.print("\n[bold green]¡Procesamiento completado con éxito![/]")
     
     # Mostrar información de sincronización
-    console.print("\n[bold cyan]Resultados de sincronización:[/]")
+    console.print("\n[bold cyan]Resultados de sincronización inicial:[/]")
     console.print(f"- Offset video 1: [green]{offset1_result['offset_seconds']:.3f} segundos[/] (confianza: {offset1_result['confidence_score']:.4f})")
     console.print(f"- Offset video 2: [green]{offset2_result['offset_seconds']:.3f} segundos[/] (confianza: {offset2_result['confidence_score']:.4f})")
+    
+    # Mostrar información de drift
+    console.print("\n[bold cyan]Resultados de drift temporal:[/]")
+    if drift1_result:
+        console.print(f"- Drift video 1: [green]{drift1_result['drift_rate']:.6f} seg/seg[/] ({drift1_result['num_windows']} ventanas analizadas)")
+    else:
+        console.print("- Drift video 1: [yellow]No disponible[/]")
+        
+    if drift2_result:
+        console.print(f"- Drift video 2: [green]{drift2_result['drift_rate']:.6f} seg/seg[/] ({drift2_result['num_windows']} ventanas analizadas)")
+    else:
+        console.print("- Drift video 2: [yellow]No disponible[/]")
+    
+    # Mostrar información de sincronización fina
+    console.print("\n[bold cyan]Resultados de sincronización fina:[/]")
+    if window1_result:
+        console.print(f"- Video 1: [green]{window1_result['num_windows']} puntos de sincronización[/] (offset promedio: {window1_result['average_offset']:.3f}s)")
+    else:
+        console.print("- Video 1: [yellow]No disponible[/]")
+        
+    if window2_result:
+        console.print(f"- Video 2: [green]{window2_result['num_windows']} puntos de sincronización[/] (offset promedio: {window2_result['average_offset']:.3f}s)")
+    else:
+        console.print("- Video 2: [yellow]No disponible[/]")
+    
+    # Mostrar información de timeline final
+    console.print("\n[bold cyan]Resultados de timeline:[/]")
+    if timeline1_result:
+        console.print(f"- Timeline video 1: [green]{timeline1_result['num_points']} puntos[/] (intervalo: {timeline1_result['sync_interval']:.1f}s)")
+    else:
+        console.print("- Timeline video 1: [yellow]No disponible[/]")
+        
+    if timeline2_result:
+        console.print(f"- Timeline video 2: [green]{timeline2_result['num_points']} puntos[/] (intervalo: {timeline2_result['sync_interval']:.1f}s)")
+    else:
+        console.print("- Timeline video 2: [yellow]No disponible[/]")
     
     # Mostrar información de VAD
     console.print("\n[bold cyan]Resultados de detección de voz:[/]")
@@ -248,77 +412,104 @@ def select_processing_parameters(test_mode, test_duration):
     if params["test_mode"] and not test_mode:
         params["test_duration"] = inquirer.number(
             message="Duración de la prueba (segundos):",
-            min_allowed=30,
-            max_allowed=1800,
-            default=300,
-            validate=lambda val: try_convert_to_int(val) and 30 <= int(val) <= 1800,
+            min_allowed=10,
+            max_allowed=3600,
+            default=test_duration,
+            transformer=try_convert_to_int
         ).execute()
     else:
         params["test_duration"] = test_duration
     
-    # Suavidad del cambio de cámara
-    params["transition_smoothness"] = inquirer.select(
-        message="Suavidad del cambio de cámara:",
+    # Tipo de transición
+    params["transition_type"] = inquirer.select(
+        message="Selecciona el tipo de transición entre cámaras:",
         choices=[
-            Choice("instantaneo", name="Instantáneo (sin transición)"),
-            Choice("suave", name="Suave (0.5 segundos)"),
-            Choice("muy_suave", name="Muy suave (1 segundo)")
+            Choice(value="cut", name="Corte directo (instantáneo)"),
+            Choice(value="dissolve", name="Fundido suave (0.5 segundos)"),
+            Choice(value="fade", name="Fundido lento (1 segundo)")
         ],
-        default="suave"
+        default="dissolve"
     ).execute()
     
     # Calidad de salida
-    params["quality"] = inquirer.select(
-        message="Calidad del video final:",
+    params["output_quality"] = inquirer.select(
+        message="Selecciona la calidad del video final:",
         choices=[
-            Choice("baja", name="Baja (más rápido)"),
-            Choice("media", name="Media (equilibrado)"),
-            Choice("alta", name="Alta (mejor calidad)")
+            Choice(value="high", name="Alta (1080p, 30fps)"),
+            Choice(value="medium", name="Media (720p, 30fps)"),
+            Choice(value="low", name="Baja (480p, 30fps)")
         ],
-        default="media"
+        default="high"
     ).execute()
     
     # Archivo de salida
-    output_dir = inquirer.filepath(
-        message="Directorio para guardar el video final:",
+    params["output_file"] = inquirer.filepath(
+        message="Selecciona la ubicación del video final:",
         only_directories=True,
-        validate=PathValidator(is_dir=True, message="Debes seleccionar un directorio válido"),
+        default=".",
+        transformer=lambda result: os.path.join(os.path.abspath(result), "podcast_final.mp4")
     ).execute()
     
-    output_filename = inquirer.text(
-        message="Nombre del archivo de salida:",
-        default="podcast_final.mp4",
-        validate=lambda val: len(val) > 0 and val.endswith((".mp4", ".mov"))
+    # Añadir subtítulos
+    params["add_subtitles"] = inquirer.confirm(
+        message="¿Añadir subtítulos automáticos al video?",
+        default=True
     ).execute()
     
-    params["output_file"] = os.path.join(output_dir, output_filename)
+    # Exportar transcripción
+    params["export_transcript"] = inquirer.confirm(
+        message="¿Exportar transcripción completa?",
+        default=True
+    ).execute()
     
     return params
 
 def try_convert_to_int(val):
-    """Intenta convertir un valor a entero, retorna False si no es posible."""
+    """Intenta convertir un valor a entero."""
     try:
-        int(val)
-        return True
+        return int(val)
     except (ValueError, TypeError):
-        return False
+        return val
 
 def show_summary(files, params):
     """Muestra un resumen de los archivos y parámetros seleccionados."""
     console.print("\n[bold cyan]Resumen de configuración:[/]")
     
+    # Archivos
     console.print("\n[bold]Archivos seleccionados:[/]")
-    console.print(f"- Video Speaker 1: [cyan]{files['video1']}[/]")
-    console.print(f"- Video Speaker 2: [cyan]{files['video2']}[/]")
-    console.print(f"- Audio Speaker 1: [cyan]{files['audio1']}[/]")
-    console.print(f"- Audio Speaker 2: [cyan]{files['audio2']}[/]")
+    console.print(f"- Video Speaker 1: [green]{files['video1']}[/]")
+    console.print(f"- Video Speaker 2: [green]{files['video2']}[/]")
+    console.print(f"- Audio Speaker 1: [green]{files['audio1']}[/]")
+    console.print(f"- Audio Speaker 2: [green]{files['audio2']}[/]")
     
+    # Parámetros
     console.print("\n[bold]Parámetros de procesamiento:[/]")
-    console.print(f"- Modo prueba: [cyan]{'Sí' if params['test_mode'] else 'No'}[/]")
-    if params["test_mode"]:
-        console.print(f"- Duración prueba: [cyan]{params['test_duration']} segundos[/]")
-    console.print(f"- Suavidad cambio: [cyan]{params['transition_smoothness']}[/]")
-    console.print(f"- Calidad: [cyan]{params['quality']}[/]")
-    console.print(f"- Archivo salida: [cyan]{params['output_file']}[/]")
     
-    console.print() 
+    if params["test_mode"]:
+        console.print(f"- Modo de prueba: [yellow]Activado[/] ({params['test_duration']} segundos)")
+    else:
+        console.print("- Modo de prueba: [green]Desactivado[/] (procesamiento completo)")
+    
+    # Tipo de transición
+    transition_names = {
+        "cut": "Corte directo (instantáneo)",
+        "dissolve": "Fundido suave (0.5 segundos)",
+        "fade": "Fundido lento (1 segundo)"
+    }
+    console.print(f"- Transición: [green]{transition_names[params['transition_type']]}[/]")
+    
+    # Calidad de salida
+    quality_names = {
+        "high": "Alta (1080p, 30fps)",
+        "medium": "Media (720p, 30fps)",
+        "low": "Baja (480p, 30fps)"
+    }
+    console.print(f"- Calidad: [green]{quality_names[params['output_quality']]}[/]")
+    
+    # Subtítulos y transcripción
+    console.print(f"- Subtítulos: [green]{'Activados' if params['add_subtitles'] else 'Desactivados'}[/]")
+    console.print(f"- Transcripción: [green]{'Activada' if params['export_transcript'] else 'Desactivada'}[/]")
+    
+    # Archivo de salida
+    console.print(f"\n- Archivo de salida: [cyan]{params['output_file']}[/]")
+    console.print("") 

@@ -85,19 +85,26 @@ python main.py
 **Objetivo:** Sincronizar videos con los audios mono usando cross-correlation
 
 ### Tareas:
-- [ ] **3.1** Implementar cross-correlation para encontrar offset inicial
-- [ ] **3.2** Detectar y corregir drift temporal progresivo
-- [ ] **3.3** Crear sistema de ventanas deslizantes para re-sincronización
-- [ ] **3.4** Implementar corrección de desfases puntuales
-- [ ] **3.5** Generar timeline sincronizado
+- [x] **3.1** Implementar cross-correlation para encontrar offset inicial
+- [x] **3.2** Detectar y corregir drift temporal progresivo
+- [x] **3.3** Crear sistema de ventanas deslizantes para re-sincronización
+- [x] **3.4** Implementar corrección de desfases puntuales
+- [x] **3.5** Generar timeline sincronizado
 
 ### Entregables:
 - ✅ Algoritmo de sincronización robusto
 - ✅ Sistema de corrección de drift
 - ✅ Timeline sincronizado de audio/video
 
+### Archivos Implementados:
+- `src/audio/synchronizer.py`: Módulo principal de sincronización con funciones para offset inicial, drift y timeline
+- `tests/test_sync.py`: Script de prueba para verificar funciones de sincronización
+
 ### Testing:
-- Opción de preview de 5 minutos desde el CLI para validar sincronización
+```bash
+# Ejecutar pruebas de sincronización
+python tests/test_sync.py --reference audio_speaker1.wav --target video_speaker1.mp4 --all
+```
 
 ---
 
@@ -199,6 +206,7 @@ podcast-multicam-editor/
 │       ├── validation.py
 │       └── logging.py
 ├── tests/
+│   └── test_sync.py
 ├── configs/
 ├── docs/
 └── README.md
@@ -248,4 +256,20 @@ El módulo se ha diseñado con las siguientes ventajas:
 - **Multilingüe**: Funciona con cualquier idioma soportado por Whisper.
 - **Barra de progreso**: Proporciona feedback visual al usuario durante el procesamiento.
 - **Manejo de errores**: Sistema robusto con gestión de excepciones y logging detallado.
-- **Resolución de solapamientos**: Algoritmo para manejar cuando dos speakers hablan simultáneamente. 
+- **Resolución de solapamientos**: Algoritmo para manejar cuando dos speakers hablan simultáneamente.
+
+### Módulo de sincronización
+
+El módulo de sincronización implementa un sistema de tres niveles para garantizar una perfecta sincronización entre las fuentes de audio y video:
+
+1. **Sincronización inicial**: Detecta el offset básico entre pistas utilizando correlación cruzada en el dominio del tiempo, con funciones optimizadas para procesar archivos grandes.
+
+2. **Corrección de drift temporal**: Detecta y corrige desviaciones progresivas en la sincronización que pueden ocurrir debido a diferencias en tasas de muestreo o reloj entre dispositivos. Usa un enfoque de ventanas deslizantes para calcular la tasa de drift.
+
+3. **Sincronización fina por segmentos**: Divide el audio en ventanas con solapamiento y calcula sincronización local para cada segmento, permitiendo corregir desfases puntuales.
+
+4. **Corrección de outliers**: Identifica y corrige desfases anómalos mediante suavizado adaptativo, evitando saltos bruscos en la sincronización.
+
+5. **Timeline unificado**: Genera un timeline preciso que combina offset inicial, corrección de drift y ajustes por segmentos para cada punto del audio.
+
+El módulo incluye herramientas de prueba y visualización para verificar la calidad de la sincronización en cada etapa del proceso. 
