@@ -15,4 +15,4 @@ dependencies:
       - InquirerPy
       - tqdm
       - rich
-      - moviepy 
+      - moviepy

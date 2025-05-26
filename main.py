@@ -4,7 +4,15 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from src.cli.commands import process_command
+from src.cli.commands import (
+    process_command, 
+    generate_command, 
+    quick_test_command, 
+    simple_test_command,
+    ultra_simple_test_command,
+    resume_command,
+    inspect_timeline_command
+)
 
 console = Console()
 
@@ -38,6 +46,12 @@ def show_welcome_banner():
 
 # Registrar los comandos disponibles
 cli.add_command(process_command)
+cli.add_command(generate_command)
+cli.add_command(quick_test_command)
+cli.add_command(simple_test_command)
+cli.add_command(ultra_simple_test_command)
+cli.add_command(resume_command)
+cli.add_command(inspect_timeline_command)
 
 if __name__ == "__main__":
     cli() 

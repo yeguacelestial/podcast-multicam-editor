@@ -136,19 +136,33 @@ python tests/test_sync.py --reference audio_speaker1.wav --target video_speaker1
 **Objetivo:** Componer el video final con cambios automáticos de cámara
 
 ### Tareas:
-- [ ] **5.1** Implementar sistema de cortes de video basado en timeline con MoviePy
-- [ ] **5.2** Sincronizar audio maestro con video resultante
-- [ ] **5.3** Manejar casos de video faltante (mostrar cámara disponible)
-- [ ] **5.4** Optimizar renderizado para videos largos (1-2 horas) con procesamiento por chunks
-- [ ] **5.5** Agregar metadatos y configuraciones de calidad usando FFmpeg
+- [x] **5.1** Implementar sistema de cortes de video basado en timeline con MoviePy
+- [x] **5.2** Sincronizar audio maestro con video resultante
+- [x] **5.3** Manejar casos de video faltante (mostrar cámara disponible)
+- [x] **5.4** Optimizar renderizado para videos largos (1-2 horas) con procesamiento por chunks
+- [x] **5.5** Agregar metadatos y configuraciones de calidad usando FFmpeg
+- [x] **5.6** Implementar modo preview para renderizar solo los primeros 5 minutos
+- [x] **5.7** Añadir logs detallados y barras de progreso para cada fase del proceso
 
 ### Entregables:
 - ✅ Video final sincronizado
 - ✅ Sistema optimizado para archivos grandes
 - ✅ Configuraciones de calidad ajustables desde el CLI
+- ✅ Opción de preview rápido (5 minutos) para pruebas
+- ✅ Sistema completo de logs y barras de progreso
+
+### Archivos Implementados:
+- `src/video/processor.py`: Módulo para procesar clips de video, implementar transiciones y optimizar rendimiento
+- `src/video/composer.py`: Módulo de alto nivel para orquestar el proceso de generación de video final
 
 ### Testing:
-- Proceso completo desde el CLI, con feedback y barra de progreso
+```bash
+# Modo completo
+python main.py
+
+# Modo preview (solo procesa 5 minutos)
+python main.py --preview
+```
 
 ---
 
@@ -156,7 +170,7 @@ python tests/test_sync.py --reference audio_speaker1.wav --target video_speaker1
 **Objetivo:** Pulir el sistema y agregar características adicionales
 
 ### Tareas:
-- [ ] **6.1** Implementar preview de 5 minutos para testing rápido
+- [x] **6.1** Implementar preview de 5 minutos para testing rápido
 - [ ] **6.2** Optimizar rendimiento para archivos grandes
 - [ ] **6.3** Agregar configuraciones avanzadas (sensibilidad, transiciones)
 - [ ] **6.4** Implementar resumenes y reportes de procesamiento
@@ -227,11 +241,33 @@ Y el sistema muestra un banner "CULTURAMA podcast editor" y lo guía paso a paso
 ## Consideraciones de Rendimiento
 
 1. **Procesamiento por chunks** para archivos grandes
-2. **Multithreading** para operaciones paralelas
-3. **Caching** de resultados intermedios
-4. **Optimización de memoria** para videos largos
-5. **Progress tracking** detallado para el usuario con Rich
-6. **Selección de modelo de Whisper** según recursos disponibles (tiny, base, small, medium)
+   - División automática del timeline en segmentos de 5 minutos
+   - Procesamiento independiente de cada chunk para optimizar memoria
+   - Concatenación eficiente con FFmpeg directo (sin recodificar)
+
+2. **Enfoque híbrido FFmpeg/MoviePy**
+   - MoviePy para la lógica de alto nivel (cortes, composición, transiciones)
+   - FFmpeg como backend para operaciones de bajo nivel y codificación final
+   - Optimización de comandos FFmpeg para máxima eficiencia
+
+3. **Multithreading** para operaciones paralelas
+   - Procesamiento paralelo de chunks cuando sea posible
+   - Configuración de threads para codificación de video
+
+4. **Modo Preview**
+   - Opción para renderizar solo los primeros 5 minutos
+   - Ideal para pruebas rápidas sin esperar el procesamiento completo
+   - Conserva todas las características del video final
+
+5. **Niveles de Calidad Configurables**
+   - Opciones de calidad baja, media y alta
+   - Presets de FFmpeg optimizados para cada nivel
+   - Balance entre velocidad de procesamiento y calidad final
+
+6. **Progress Tracking**
+   - Barras de progreso detalladas para cada fase del proceso
+   - Logs completos con timestamps para diagnóstico
+   - Estimación de tiempo restante durante el procesamiento
 
 ## Métricas de Éxito
 
