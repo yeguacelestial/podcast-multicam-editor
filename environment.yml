@@ -1,18 +1,13 @@
-name: podcast-editor
+name: podcast-multicam-editor
 channels:
   - conda-forge
+  - defaults
 dependencies:
-  - python=3.11
+  - python=3.10
   - ffmpeg
   - numpy
-  - scipy
   - pip
   - pip:
-      - librosa
-      - soundfile
       - openai-whisper
-      - click
-      - InquirerPy
-      - tqdm
-      - rich
       - moviepy
+      - torch
