@@ -417,7 +417,7 @@ def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, p
                 '-map', '[outv]',
                 '-map', '2:a',  # Audio de referencia
                 '-c:v', 'libx264',
-                '-preset', 'slow',   # Mejor calidad, más lento
+                '-preset', 'ultrafast',   
                 '-crf', '18',            # Mejor calidad visual
                 '-pix_fmt', 'yuv420p',   # Compatibilidad máxima
                 '-c:a', 'copy',          # Audio intocable
