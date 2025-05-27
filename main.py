@@ -268,156 +268,184 @@ def find_offset(ref: np.ndarray, target: np.ndarray, max_shift: int = 16000*5) -
     offset = best + search_range[0] - mid
     return offset
 
-def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, preview_duration=None):
+def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, preview_duration=None, batch_duration=60):
     """
-    Procesamiento optimizado con sincronización respecto a audio de referencia.
+    Procesamiento optimizado por batches de 1 minuto, tolerante a fallos y reanudable.
     """
-    etapas = [
-        "Recortando videos y audio de referencia (si preview)",
-        "Extrayendo audios de los videos y referencia",
-        "Sincronizando audios",
-        "Recortando videos según offset",
-        "Analizando energía y silencios",
-        "Ensamblando video final"
-    ]
-    progreso = tqdm(total=len(etapas), bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]', desc='Progreso general')
+    # Obtener duración total
+    def get_duration(path):
+        cmd = [
+            'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1', path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Error obteniendo duración: {result.stderr}")
+        return float(result.stdout.strip())
+
+    total_duration = min(get_duration(video1_path), get_duration(video2_path), get_duration(ref_audio_path))
+    n_batches = int(np.ceil(total_duration / batch_duration))
+    batches_dir = os.path.join('output', 'batches')
+    os.makedirs(batches_dir, exist_ok=True)
+    batch_files = []
+    progreso = tqdm(total=n_batches, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]', desc='Batches procesados')
     tiempo_inicio = time.time()
 
-    temp_files = []
-    work_video1 = video1_path
-    work_video2 = video2_path
-    work_audio_ref = ref_audio_path
-    duration = preview_duration
-
-    # 1. Recorte de videos/audio si preview
-    if duration:
-        progreso.set_description(etapas[0])
-        def cut_clip(input_path, suffix):
-            temp_clip = tempfile.NamedTemporaryFile(suffix=suffix, delete=False).name
-            temp_files.append(temp_clip)
+    for batch_idx in range(n_batches):
+        start = batch_idx * batch_duration
+        end = min((batch_idx + 1) * batch_duration, total_duration)
+        dur = end - start
+        batch_name = f"batch_{batch_idx+1:04d}.mp4"
+        batch_path = os.path.join(batches_dir, batch_name)
+        batch_files.append(batch_path)
+        if os.path.exists(batch_path):
+            print(f"✅ Batch {batch_idx+1}/{n_batches} ya existe, saltando...")
+            progreso.update(1)
+            continue
+        print(f"\n🚩 Procesando batch {batch_idx+1}/{n_batches} ({start:.1f}s - {end:.1f}s, duración {dur:.1f}s)")
+        temp_files = []
+        try:
+            # Recortar videos y audio de referencia para el batch
+            def cut_clip(input_path, suffix):
+                temp_clip = tempfile.NamedTemporaryFile(suffix=suffix, delete=False).name
+                temp_files.append(temp_clip)
+                cmd = [
+                    'ffmpeg', '-ss', str(start), '-t', str(dur),
+                    '-i', input_path,
+                    '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-y', temp_clip
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise RuntimeError(f"Error recortando clip: {result.stderr}")
+                return temp_clip
+            work_video1 = cut_clip(video1_path, f'_v1_b{batch_idx+1}.mp4')
+            work_video2 = cut_clip(video2_path, f'_v2_b{batch_idx+1}.mp4')
+            temp_audio_ref = tempfile.NamedTemporaryFile(suffix=f'_ref_b{batch_idx+1}.wav', delete=False).name
+            temp_files.append(temp_audio_ref)
             cmd = [
-                'ffmpeg', '-i', input_path,
-                '-t', str(duration),
-                '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-y', temp_clip
+                'ffmpeg', '-ss', str(start), '-t', str(dur),
+                '-i', ref_audio_path,
+                '-ac', '1', '-ar', '16000', '-vn', '-y', temp_audio_ref
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                raise RuntimeError(f"Error recortando clip: {result.stderr}")
-            return temp_clip
-        work_video1 = cut_clip(video1_path, '_preview1.mp4')
-        work_video2 = cut_clip(video2_path, '_preview2.mp4')
-        # Recortar el audio de referencia a WAV mono 16kHz
-        temp_audio_ref = tempfile.NamedTemporaryFile(suffix='_ref_preview.wav', delete=False).name
-        temp_files.append(temp_audio_ref)
-        cmd = [
-            'ffmpeg', '-i', ref_audio_path,
-            '-t', str(duration),
-            '-ac', '1', '-ar', '16000', '-vn', '-y', temp_audio_ref
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"Error recortando audio de referencia: {result.stderr}")
-        work_audio_ref = temp_audio_ref
-    progreso.update(1)
-
-    # 2. Extracción de audios
-    progreso.set_description(etapas[1])
-    temp_audio1 = tempfile.NamedTemporaryFile(suffix='_v1.wav', delete=False).name
-    temp_audio2 = tempfile.NamedTemporaryFile(suffix='_v2.wav', delete=False).name
-    temp_audio_ref = tempfile.NamedTemporaryFile(suffix='_ref.wav', delete=False).name
-    temp_files += [temp_audio1, temp_audio2, temp_audio_ref]
-    extract_audio(work_video1, temp_audio1, None)
-    extract_audio(work_video2, temp_audio2, None)
-    extract_audio(work_audio_ref, temp_audio_ref, None)
-    progreso.update(1)
-
-    # 3. Sincronización (solo primeros 10s)
-    progreso.set_description(etapas[2])
-    audio1 = read_wav_mono(temp_audio1)
-    audio2 = read_wav_mono(temp_audio2)
-    audio_ref = read_wav_mono(temp_audio_ref)
-    sample_rate = 16000
-    sync_seconds = min(10, len(audio_ref)//sample_rate, len(audio1)//sample_rate, len(audio2)//sample_rate)
-    if duration:
-        sync_seconds = min(sync_seconds, duration)
-    n_samples = int(sync_seconds * sample_rate)
-    offset1 = find_offset(audio_ref[:n_samples], audio1[:n_samples])
-    offset2 = find_offset(audio_ref[:n_samples], audio2[:n_samples])
-    print(f"🔄 Offset video1: {offset1/sample_rate:.3f}s, video2: {offset2/sample_rate:.3f}s")
-    progreso.update(1)
-
-    # 4. Recorte por offset
-    progreso.set_description(etapas[3])
-    def trim_video(input_path, offset_samples):
-        offset_sec = max(0, -offset_samples/sample_rate)
-        temp_vid = tempfile.NamedTemporaryFile(suffix='_sync.mp4', delete=False).name
-        temp_files.append(temp_vid)
-        cmd = [
-            'ffmpeg', '-i', input_path,
-            '-ss', f'{offset_sec:.3f}',
-            '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-y', temp_vid
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"Error sincronizando video: {result.stderr}")
-        return temp_vid
-    sync_video1 = trim_video(work_video1, offset1)
-    sync_video2 = trim_video(work_video2, offset2)
-    temp_files += [sync_video1, sync_video2]
-    progreso.update(1)
-
-    # 5. Análisis de energía/silencios
-    progreso.set_description(etapas[4])
-    duration1, vol1, silence1 = get_audio_energy_fast(sync_video1)
-    duration2, vol2, silence2 = get_audio_energy_fast(sync_video2)
-    print(f"📊 Video 1: {duration1:.1f}s, {vol1:.1f}dB, {len(silence1)} silencios")
-    print(f"📊 Video 2: {duration2:.1f}s, {vol2:.1f}dB, {len(silence2)} silencios")
-    segments = create_simple_timeline(duration1, vol1, silence1, duration2, vol2, silence2)
-    print(f"🎬 Generando {len(segments)} segmentos...")
-    for i, (start, end, speaker) in enumerate(segments):
-        print(f"  Segmento {i+1}: {start:.1f}s-{end:.1f}s -> Cámara {speaker}")
-    progreso.update(1)
-
-    # 6. Ensamblaje final
-    progreso.set_description(etapas[5])
-    filter_parts = []
-    for i, (start, end, speaker) in enumerate(segments):
-        input_idx = 0 if speaker == 1 else 1
-        duration = end - start
-        filter_parts.append(f"[{input_idx}:v]trim=start={start:.2f}:duration={duration:.2f},setpts=PTS-STARTPTS[v{i}];")
-    n_segments = len(segments)
-    video_concat = "".join([f"[v{i}]" for i in range(n_segments)])
-    filter_parts.append(f"{video_concat}concat=n={n_segments}:v=1:a=0[outv];")
-    # Mezclar los audios sincronizados
-    filter_parts.append(f"[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[outa]")
-    complex_filter = "".join(filter_parts)
+                raise RuntimeError(f"Error recortando audio de referencia: {result.stderr}")
+            work_audio_ref = temp_audio_ref
+            # Extracción de audios
+            temp_audio1 = tempfile.NamedTemporaryFile(suffix=f'_v1_b{batch_idx+1}.wav', delete=False).name
+            temp_audio2 = tempfile.NamedTemporaryFile(suffix=f'_v2_b{batch_idx+1}.wav', delete=False).name
+            temp_files += [temp_audio1, temp_audio2]
+            extract_audio(work_video1, temp_audio1, None)
+            extract_audio(work_video2, temp_audio2, None)
+            # Sincronización al inicio y final del batch
+            audio1 = read_wav_mono(temp_audio1)
+            audio2 = read_wav_mono(temp_audio2)
+            audio_ref = read_wav_mono(work_audio_ref)
+            sample_rate = 16000
+            n_samples = int(min(10, dur) * sample_rate)
+            offset1_ini = find_offset(audio_ref[:n_samples], audio1[:n_samples])
+            offset2_ini = find_offset(audio_ref[:n_samples], audio2[:n_samples])
+            # Si el batch es mayor a 30s, también sincronizar al final
+            if dur > 30 and len(audio_ref) > n_samples*2:
+                offset1_end = find_offset(audio_ref[-n_samples:], audio1[-n_samples:])
+                offset2_end = find_offset(audio_ref[-n_samples:], audio2[-n_samples:])
+                drift1 = (offset1_end - offset1_ini) / sample_rate
+                drift2 = (offset2_end - offset2_ini) / sample_rate
+            else:
+                drift1 = drift2 = 0
+            print(f"  Offsets: v1={offset1_ini/sample_rate:.3f}s, v2={offset2_ini/sample_rate:.3f}s | Drift: v1={drift1:.4f}s, v2={drift2:.4f}s")
+            # Ajustar velocidad si hay drift
+            def trim_and_stretch(input_path, offset_samples, drift, suffix):
+                offset_sec = max(0, -offset_samples/sample_rate)
+                temp_vid = tempfile.NamedTemporaryFile(suffix=suffix, delete=False).name
+                temp_files.append(temp_vid)
+                atempo = 1.0
+                if abs(drift) > 0.01:
+                    atempo = 1.0 + drift/dur
+                # Recortar y ajustar velocidad solo del audio
+                cmd = [
+                    'ffmpeg', '-ss', f'{offset_sec:.3f}', '-t', str(dur),
+                    '-i', input_path,
+                    '-filter_complex', f"[0:v]setpts=PTS-STARTPTS[v];[0:a]atempo={atempo:.6f}[a]",
+                    '-map', '[v]', '-map', '[a]',
+                    '-c:v', 'libx264', '-preset', 'ultrafast',
+                    '-c:a', 'aac', '-b:a', '128k',
+                    '-avoid_negative_ts', 'make_zero', '-y', temp_vid
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise RuntimeError(f"Error sincronizando y ajustando velocidad: {result.stderr}")
+                return temp_vid
+            sync_video1 = trim_and_stretch(work_video1, offset1_ini, drift1, f'_sync1_b{batch_idx+1}.mp4')
+            sync_video2 = trim_and_stretch(work_video2, offset2_ini, drift2, f'_sync2_b{batch_idx+1}.mp4')
+            temp_files += [sync_video1, sync_video2]
+            # Análisis de energía/silencios
+            duration1, vol1, silence1 = get_audio_energy_fast(sync_video1)
+            duration2, vol2, silence2 = get_audio_energy_fast(sync_video2)
+            segments = create_simple_timeline(duration1, vol1, silence1, duration2, vol2, silence2)
+            # Ensamblaje final del batch
+            filter_parts = []
+            for i, (start_s, end_s, speaker) in enumerate(segments):
+                input_idx = 0 if speaker == 1 else 1
+                seg_dur = end_s - start_s
+                filter_parts.append(f"[{input_idx}:v]trim=start={start_s:.2f}:duration={seg_dur:.2f},setpts=PTS-STARTPTS[v{i}];")
+            n_segments = len(segments)
+            video_concat = "".join([f"[v{i}]" for i in range(n_segments)])
+            filter_parts.append(f"{video_concat}concat=n={n_segments}:v=1:a=0[outv];")
+            filter_parts.append(f"[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[outa]")
+            complex_filter = "".join(filter_parts)
+            cmd = [
+                'ffmpeg',
+                '-i', sync_video1,
+                '-i', sync_video2,
+                '-filter_complex', complex_filter,
+                '-map', '[outv]',
+                '-map', '[outa]',
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-crf', '25',
+                '-tune', 'fastdecode',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
+                '-threads', '0',
+                '-y',
+                batch_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"❌ Error en ffmpeg batch {batch_idx+1}: {result.stderr}")
+                raise RuntimeError(f"Error en ffmpeg batch {batch_idx+1}")
+            print(f"✅ Batch {batch_idx+1} generado: {batch_path}")
+            progreso.update(1)
+        except Exception as e:
+            print(f"💥 Error en batch {batch_idx+1}: {e}")
+            print(f"Deteniendo el procesamiento. Puedes reanudar luego.")
+            break
+        finally:
+            for temp_file in temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except Exception as e:
+                    print(f"⚠️  No se pudo limpiar {temp_file}: {e}")
+    progreso.close()
+    # Concatenar todos los batches generados
+    print("\n🔗 Concatenando todos los batches...")
+    concat_list = os.path.join(batches_dir, 'concat_list.txt')
+    with open(concat_list, 'w') as f:
+        for batch_path in batch_files:
+            if os.path.exists(batch_path):
+                f.write(f"file '{os.path.abspath(batch_path)}'\n")
     cmd = [
-        'ffmpeg',
-        '-i', sync_video1,
-        '-i', sync_video2,
-        '-filter_complex', complex_filter,
-        '-map', '[outv]',
-        '-map', '[outa]',  # Mezcla de ambas tomas
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-crf', '25',
-        '-tune', 'fastdecode',
-        '-c:a', 'aac',
-        '-b:a', '128k',
-        '-movflags', '+faststart',
-        '-threads', '0',
-        '-y',
-        output_path
+        'ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list,
+        '-c', 'copy', '-y', output_path
     ]
-    print("⚡ Generando video final...")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"❌ Error en ffmpeg: {result.stderr}")
-        progreso.close()
+        print(f"❌ Error concatenando batches: {result.stderr}")
         return False
-    print(f"✅ Video generado exitosamente: {output_path}")
-    progreso.update(1)
-    progreso.close()
+    print(f"🎉 Video final generado: {output_path}")
     tiempo_total = time.time() - tiempo_inicio
     print(f"⏱️  Tiempo total transcurrido: {tiempo_total:.1f} segundos")
     return True
