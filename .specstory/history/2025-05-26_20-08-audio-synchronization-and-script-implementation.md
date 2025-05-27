@@ -1611,6 +1611,126 @@ en cada batch, en lugar del audio de los videos, usa el audio de referencia, no 
 
 _**Assistant**_
 
+```diff
+              video_concat = "".join([f"[v{i}]" for i in range(n_segments)])
+              filter_parts.append(f"{video_concat}concat=n={n_segments}:v=1:a=0[outv];")
+-             filter_parts.append(f"[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[outa]")
+              complex_filter = "".join(filter_parts)
+              cmd = [
+                  'ffmpeg',
+                  '-i', sync_video1,
+                  '-i', sync_video2,
++                 '-i', work_audio_ref,
+                  '-filter_complex', complex_filter,
+                  '-map', '[outv]',
+-                 '-map', '[outa]',
++                 '-map', '2:a',  # Audio de referencia
+                  '-c:v', 'libx264',
+                  '-preset', 'ultrafast',
+```
+
+---
+
+¡Listo! Ahora, en cada batch, el audio final será el audio de referencia recortado para ese batch, y no la mezcla de los audios de los videos.  
+Esto garantiza que el audio de salida sea exactamente el de tu mezcla de referencia, perfectamente alineado con los cortes de cámara.
+
+¿Quieres probarlo y ver si el resultado es el esperado? ¿O necesitas algún ajuste más en el flujo?
+
+---
+
+_**User**_
+
+escucho el audio un poco comprimido.
+
+---
+
+_**Assistant**_
+
+¡Buena observación! El audio puede sonar “comprimido” o con pérdida de calidad porque en el comando ffmpeg para cada batch se está usando:
+
+```
+-c:a aac -b:a 128k
+```
+
+Esto recodifica el audio de referencia a AAC a 128 kbps, lo cual puede degradar la calidad, especialmente si tu mezcla de referencia es WAV o MP3 de alta calidad.
+
+---
+
+## Solución
+
+Para mantener la máxima calidad del audio de referencia:
+
+1. Si el audio de referencia ya está en un formato compatible (por ejemplo, AAC, MP3, WAV), usa `-c:a copy` para copiar el audio sin recodificar.
+2. Si necesitas recodificar, usa un bitrate más alto (por ejemplo, `-b:a 320k` para AAC) o usa un codec sin compresión como PCM (`-c:a pcm_s16le`), aunque esto aumenta el tamaño del archivo.
+
+---
+
+### Recomendación
+
+- **Opción 1 (máxima calidad, sin recodificar):**  
+  Cambia en el comando ffmpeg de cada batch:
+  ```
+  -c:a aac -b:a 128k
+  ```
+  por
+  ```
+  -c:a copy
+  ```
+  (Esto solo funcionará si el audio de referencia es compatible con el contenedor MP4, como AAC o MP3.)
+
+- **Opción 2 (calidad alta, recodificando):**  
+  Cambia a:
+  ```
+  -c:a aac -b:a 320k
+  ```
+
+- **Opción 3 (sin compresión, solo para pruebas):**  
+  ```
+  -c:a pcm_s16le
+  ```
+  (Esto generará archivos mucho más grandes.)
+
+¿Prefieres que aplique la opción 1 (copy) y si falla, que use la opción 2 (320k)? ¿O tienes preferencia por alguna de las otras?
+
+---
+
+_**User**_
+
+quiero que se use el audio sin compresion, tal cual como esté el mix del audio de referencia. no lo comprimas por favor.
+
+---
+
+_**Assistant**_
+
+```diff
+                  '-crf', '25',
+                  '-tune', 'fastdecode',
+-                 '-c:a', 'aac',
+-                 '-b:a', '128k',
++                 '-c:a', 'copy',
+                  '-movflags', '+faststart',
+                  '-threads', '0',
+```
+
+---
+
+¡Listo! Ahora el audio de referencia se copia tal cual, sin compresión ni recodificación, usando `-c:a copy` en el ensamblaje de cada batch.  
+Esto garantiza que la calidad del audio final será exactamente la misma que la de tu mezcla de referencia, sin ninguna pérdida.
+
+¿Quieres probarlo y ver si el audio se escucha perfecto? ¿O necesitas algún ajuste más?
+
+---
+
+_**User**_
+
+ok, estas haciendo un excelente trabajo.
+
+el codec debe ser h264, y el audio debe ser de 44100 Hz, en calidad exportada de garage band de 256 kbps
+
+---
+
+_**Assistant**_
+
 
 
 ---

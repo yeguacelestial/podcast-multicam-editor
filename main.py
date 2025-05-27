@@ -320,27 +320,42 @@ def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, p
                 return temp_clip
             work_video1 = cut_clip(video1_path, f'_v1_b{batch_idx+1}.mp4')
             work_video2 = cut_clip(video2_path, f'_v2_b{batch_idx+1}.mp4')
-            temp_audio_ref = tempfile.NamedTemporaryFile(suffix=f'_ref_b{batch_idx+1}.wav', delete=False).name
-            temp_files.append(temp_audio_ref)
+            
+            # Audio de referencia para análisis (baja calidad, mono, 16kHz)
+            temp_audio_ref_analysis = tempfile.NamedTemporaryFile(suffix=f'_ref_analysis_b{batch_idx+1}.wav', delete=False).name
+            temp_files.append(temp_audio_ref_analysis)
             cmd = [
                 'ffmpeg', '-ss', str(start), '-t', str(dur),
                 '-i', ref_audio_path,
-                '-ac', '1', '-ar', '16000', '-vn', '-y', temp_audio_ref
+                '-ac', '1', '-ar', '16000', '-vn', '-y', temp_audio_ref_analysis
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                raise RuntimeError(f"Error recortando audio de referencia: {result.stderr}")
-            work_audio_ref = temp_audio_ref
-            # Extracción de audios
+                raise RuntimeError(f"Error recortando audio de referencia para análisis: {result.stderr}")
+            
+            # Audio de referencia para el video final (alta calidad, original)
+            temp_audio_ref_final = tempfile.NamedTemporaryFile(suffix=f'_ref_final_b{batch_idx+1}.wav', delete=False).name
+            temp_files.append(temp_audio_ref_final)
+            cmd = [
+                'ffmpeg', '-ss', str(start), '-t', str(dur),
+                '-i', ref_audio_path,
+                '-vn', '-c:a', 'pcm_s16le', '-y', temp_audio_ref_final
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(f"Error recortando audio de referencia final: {result.stderr}")
+                
+            # Extracción de audios para análisis
             temp_audio1 = tempfile.NamedTemporaryFile(suffix=f'_v1_b{batch_idx+1}.wav', delete=False).name
             temp_audio2 = tempfile.NamedTemporaryFile(suffix=f'_v2_b{batch_idx+1}.wav', delete=False).name
             temp_files += [temp_audio1, temp_audio2]
             extract_audio(work_video1, temp_audio1, None)
             extract_audio(work_video2, temp_audio2, None)
+            
             # Sincronización al inicio y final del batch
             audio1 = read_wav_mono(temp_audio1)
             audio2 = read_wav_mono(temp_audio2)
-            audio_ref = read_wav_mono(work_audio_ref)
+            audio_ref = read_wav_mono(temp_audio_ref_analysis)
             sample_rate = 16000
             n_samples = int(min(10, dur) * sample_rate)
             offset1_ini = find_offset(audio_ref[:n_samples], audio1[:n_samples])
@@ -368,7 +383,7 @@ def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, p
                     '-i', input_path,
                     '-filter_complex', f"[0:v]setpts=PTS-STARTPTS[v];[0:a]atempo={atempo:.6f}[a]",
                     '-map', '[v]', '-map', '[a]',
-                    '-c:v', 'libx264', '-preset', 'ultrafast',
+                    '-c:v', 'libx264', '-preset', 'slow',
                     '-c:a', 'aac', '-b:a', '128k',
                     '-avoid_negative_ts', 'make_zero', '-y', temp_vid
                 ]
@@ -388,7 +403,7 @@ def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, p
             for i, (start_s, end_s, speaker) in enumerate(segments):
                 input_idx = 0 if speaker == 1 else 1
                 seg_dur = end_s - start_s
-                filter_parts.append(f"[{input_idx}:v]trim=start={start_s:.2f}:duration={seg_dur:.2f},setpts=PTS-STARTPTS[v{i}];")
+                filter_parts.append(f"[{input_idx}:v]trim=start={start_s:.2f}:duration={seg_dur:.2f},setpts=PTS-STARTPTS,scale=1920:1080[v{i}];")
             n_segments = len(segments)
             video_concat = "".join([f"[v{i}]" for i in range(n_segments)])
             filter_parts.append(f"{video_concat}concat=n={n_segments}:v=1:a=0[outv];")
@@ -397,16 +412,15 @@ def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, p
                 'ffmpeg',
                 '-i', sync_video1,
                 '-i', sync_video2,
-                '-i', work_audio_ref,
+                '-i', temp_audio_ref_final,  # Audio de referencia en alta calidad
                 '-filter_complex', complex_filter,
                 '-map', '[outv]',
                 '-map', '2:a',  # Audio de referencia
                 '-c:v', 'libx264',
-                '-preset', 'ultrafast',
-                '-crf', '25',
-                '-tune', 'fastdecode',
-                '-c:a', 'aac',
-                '-b:a', '128k',
+                '-preset', 'slow',   # Mejor calidad, más lento
+                '-crf', '18',            # Mejor calidad visual
+                '-pix_fmt', 'yuv420p',   # Compatibilidad máxima
+                '-c:a', 'copy',          # Audio intocable
                 '-movflags', '+faststart',
                 '-threads', '0',
                 '-y',
