@@ -392,15 +392,15 @@ def process_videos_fast(video1_path, video2_path, ref_audio_path, output_path, p
             n_segments = len(segments)
             video_concat = "".join([f"[v{i}]" for i in range(n_segments)])
             filter_parts.append(f"{video_concat}concat=n={n_segments}:v=1:a=0[outv];")
-            filter_parts.append(f"[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[outa]")
             complex_filter = "".join(filter_parts)
             cmd = [
                 'ffmpeg',
                 '-i', sync_video1,
                 '-i', sync_video2,
+                '-i', work_audio_ref,
                 '-filter_complex', complex_filter,
                 '-map', '[outv]',
-                '-map', '[outa]',
+                '-map', '2:a',  # Audio de referencia
                 '-c:v', 'libx264',
                 '-preset', 'ultrafast',
                 '-crf', '25',
